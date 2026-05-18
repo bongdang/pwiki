@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form method="GET" action="{{ url_prefix }}/" class="search-form">
+    <input type="hidden" name="action" value="search">
+    <input type="text" name="q" value="{{ query }}" size="40" autofocus>
+    <input type="submit" value="Search">
+</form>
+
+{% if query %}
+  {% if results %}
+    <p>{{ results|length }} result(s) for <strong>{{ query }}</strong>:</p>
+    <ul class="search-results">
+    {% for r in results %}
+      <li>
+        <a href="{{ url_prefix }}/{{ r.page | urlencode }}">{{ r.page }}</a>
+        {% if r.title_match %}<em>(title match)</em>{% endif %}
+        {% if r.snippet %}<br><small>{{ r.snippet | safe }}</small>{% endif %}
+      </li>
+    {% endfor %}
+    </ul>
+  {% else %}
+    <p>No results found for <strong>{{ query }}</strong>.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

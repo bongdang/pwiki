@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>OAuth User Management</h2>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+
+<section class="admin-section">
+  <h3>Add User</h3>
+  <form method="POST" action="{{ url_prefix }}/_admin/users" class="admin-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="op" value="grant">
+    <label for="grant-email">email</label>
+    <input id="grant-email" type="email" name="email" required placeholder="user@example.com">
+    <label for="grant-default-permission">Default permission</label>
+    <select id="grant-default-permission" name="default_permission">
+      {% for p in permissions %}
+      <option value="{{ p }}" {% if p == 'read' %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+    <label class="checkbox" for="grant-is-admin">
+      <input id="grant-is-admin" type="checkbox" name="is_admin" value="1"> admin
+    </label>
+    <button type="submit">Add</button>
+  </form>
+</section>
+
+<section class="admin-section">
+  <h3>Registered Users</h3>
+  {% if users %}
+  <table class="rc">
+    <thead>
+      <tr>
+        <th>email</th>
+        <th>admin</th>
+        <th>default permission</th>
+        <th>sub</th>
+        <th>last login</th>
+        <th>actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><a href="{{ url_prefix }}/_admin/users/{{ u.email | urlencode }}">{{ u.email }}</a></td>
+        <td>{{ 'Y' if u.is_admin else '' }}</td>
+        <td>{{ u.default_permission }}</td>
+        <td>{{ u.sub or '(pending)' }}</td>
+        <td>{% if u.last_login_at %}<time datetime="{{ u.last_login_at }}" class="local-datetime">{{ u.last_login_at }}</time>{% endif %}</td>
+        <td>
+          {% if u.email != username %}
+          <form method="POST" action="{{ url_prefix }}/_admin/users" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="op" value="revoke">
+            <input type="hidden" name="email" value="{{ u.email }}">
+            <button type="submit" onclick="return confirm('Delete {{ u.email }}?')">Delete</button>
+          </form>
+          {% else %}
+          <span class="admin-self-note" title="You cannot delete yourself">(self)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No registered users.</p>
+  {% endif %}
+</section>
+{% endblock %}

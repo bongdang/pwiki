@@ -1,0 +1,12 @@
+[Unit]
+Description=Run pwiki vault Git sync every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=pwiki-vault-sync.service
+
+[Install]
+WantedBy=timers.target

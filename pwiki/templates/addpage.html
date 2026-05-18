@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form method="GET" action="{{ url_prefix }}/">
+    <input type="hidden" name="action" value="edit">
+    <p>
+        <label for="id">Page Name:</label>
+        <input type="text" id="id" name="id" value="{{ page_name }}" size="50" autofocus>
+    </p>
+    <p><input type="submit" value="Create Page"></p>
+</form>
+{% endblock %}

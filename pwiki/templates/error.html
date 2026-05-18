@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="error-panel">
+  <h2>{{ error_title or 'An error occurred' }}</h2>
+  <p>{{ error_message or 'The request could not be processed.' }}</p>
+  {% if error_detail %}
+  <p class="error-detail">{{ error_detail }}</p>
+  {% endif %}
+  <p class="error-actions">
+    <a href="{{ url_prefix }}/">Home</a>
+    {% if page_id %}<a href="{{ url_prefix }}/{{ page_id | urlencode }}">Current page</a>{% endif %}
+  </p>
+</section>
+{% endblock %}

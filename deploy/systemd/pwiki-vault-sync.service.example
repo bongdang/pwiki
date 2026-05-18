@@ -1,0 +1,9 @@
+[Unit]
+Description=pwiki vault Git sync
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/pwiki
+ExecStart=/usr/bin/docker compose exec -T pwiki sh -lc 'python -m pwiki.cli vault sync "$PWIKI_MARKDOWN_DIR"'

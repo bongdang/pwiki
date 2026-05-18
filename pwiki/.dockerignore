@@ -1,0 +1,18 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+# 데이터 디렉터리는 외부 볼륨으로 마운트됨
+data/
+pages/
+keep/
+users/
+lock/
+temp/
+html/
+upload/
+rclog
+# 개발 파일
+tests/
+*.md

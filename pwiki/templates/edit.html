@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Editing {{ page_id.replace('_', ' ') }}{% endblock %}
+{% block titlebar_center %}<span class="edit-titlebar">Editing: {{ page_id.replace('_', ' ') }}</span><span id="dirty-marker" class="dirty-marker" hidden>● modified</span>{% endblock %}
+
+{% block content %}
+<form method="POST" action="{{ url_prefix }}/{{ page_id | urlencode }}" id="edit-form" class="edit-form">
+    <input type="hidden" name="action" value="save">
+    <input type="hidden" name="oldtime" value="{{ page_time }}">
+    <input type="hidden" name="oldhash" value="{{ old_hash }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="section" value="{{ section }}">
+
+    <div class="edit-toolbar" role="toolbar" aria-label="Edit toolbar">
+        <button type="button" class="ed-btn" data-fmt="bold" title="Bold (⌘B)"><strong>B</strong></button>
+        <button type="button" class="ed-btn" data-fmt="italic" title="Italic (⌘I)"><em>I</em></button>
+        <button type="button" class="ed-btn" data-fmt="strike" title="Strikethrough"><s>S</s></button>
+        <span class="ed-sep" aria-hidden="true"></span>
+        <button type="button" class="ed-btn" data-fmt="h1" title="Heading 1">H1</button>
+        <button type="button" class="ed-btn" data-fmt="h2" title="Heading 2">H2</button>
+        <button type="button" class="ed-btn" data-fmt="h3" title="Heading 3">H3</button>
+        <span class="ed-sep" aria-hidden="true"></span>
+        <button type="button" class="ed-btn" data-fmt="quote" title="Quote">&ldquo;</button>
+        <button type="button" class="ed-btn" data-fmt="ul" title="Bullet list">•</button>
+        <button type="button" class="ed-btn" data-fmt="ol" title="Numbered list">1.</button>
+        <button type="button" class="ed-btn" data-fmt="task" title="Task list">☐</button>
+        <span class="ed-sep" aria-hidden="true"></span>
+        <button type="button" class="ed-btn" data-fmt="code" title="Inline code">&lt;&gt;</button>
+        <button type="button" class="ed-btn" data-fmt="codeblock" title="Code block">```</button>
+        <button type="button" class="ed-btn" data-fmt="link" title="Link (⌘K)">🔗</button>
+        <button type="button" class="ed-btn" data-fmt="image" title="Image">🖼</button>
+        <button type="button" class="ed-btn" data-fmt="hr" title="Divider">—</button>
+        <span class="ed-spacer"></span>
+        <button type="button" class="ed-btn" id="preview-toggle" title="Preview (⌘P)">👁 Preview</button>
+        <button type="submit" class="ed-btn ed-primary" id="save-btn" title="Save (⌘S)">Save</button>
+    </div>
+
+    <div class="edit-pane">
+        <textarea id="edit-text" name="text" class="edit-textarea" spellcheck="false">{{ old_text }}</textarea>
+        <div id="edit-preview" class="edit-preview page-content" hidden></div>
+    </div>
+
+    <div class="edit-meta-row">
+        <label for="summary">Summary</label>
+        <input type="text" id="summary" name="summary" placeholder="Summary of changes">
+        <a class="edit-cancel" href="{{ url_prefix }}/{{ page_id | urlencode }}">Cancel</a>
+    </div>
+
+    <details class="edit-help-toggle">
+        <summary>📝 Markdown Help</summary>
+        <div class="edit-help">
+
+<h4>Text Formatting</h4>
+<table class="help-table">
+<tr><td><code>**bold**</code></td><td><strong>bold</strong></td></tr>
+<tr><td><code>*italic*</code> or <code>_italic_</code></td><td><em>italic</em></td></tr>
+<tr><td><code>~~strikethrough~~</code></td><td><s>strikethrough</s></td></tr>
+<tr><td><code>`inline code`</code></td><td><code>inline code</code></td></tr>
+</table>
+
+<h4>Headings</h4>
+<table class="help-table">
+<tr><td><code># Heading 1</code></td><td>Largest heading (h1)</td></tr>
+<tr><td><code>## Heading 2</code></td><td>Medium heading (h2)</td></tr>
+<tr><td><code>### Heading 3</code></td><td>Small heading (h3)</td></tr>
+</table>
+
+<h4>Lists</h4>
+<table class="help-table">
+<tr><td><code>- item</code> or <code>* item</code></td><td>Bullet list</td></tr>
+<tr><td><code>  - child item</code></td><td>Nested item (two leading spaces)</td></tr>
+<tr><td><code>1. first</code></td><td>Numbered list</td></tr>
+<tr><td><code>- [ ] task</code></td><td>Task list checkbox</td></tr>
+</table>
+
+<h4>Links / Images</h4>
+<table class="help-table">
+<tr><td><code>[[Page Name]]</code></td><td>Obsidian wiki link</td></tr>
+<tr><td><code>[[Page|Label]]</code></td><td>Custom display text</td></tr>
+<tr><td><code>[[Page#Section]]</code></td><td>Section anchor</td></tr>
+<tr><td><code>[Name](http://url)</code></td><td>External link</td></tr>
+<tr><td><code>![[image.png]]</code></td><td>Attached image/file</td></tr>
+<tr><td><code>#tag</code></td><td>Inline tag (search link)</td></tr>
+</table>
+
+<h4>Code Blocks</h4>
+<table class="help-table">
+<tr><td><code>```<br>code<br>```</code></td><td>Fenced code block</td></tr>
+<tr><td><code>```python<br>code<br>```</code></td><td>With language label</td></tr>
+</table>
+
+<h4>Other</h4>
+<table class="help-table">
+<tr><td><code>---</code></td><td>Horizontal rule</td></tr>
+<tr><td><code>&gt; quote</code></td><td>Blockquote</td></tr>
+<tr><td><code>| cell | cell |</code></td><td>Table (GFM)</td></tr>
+<tr><td><code>==highlight==</code></td><td>Highlight (Obsidian)</td></tr>
+</table>
+
+        </div>
+    </details>
+</form>
+{% endblock %}

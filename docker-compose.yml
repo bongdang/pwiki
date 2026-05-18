@@ -1,0 +1,66 @@
+services:
+  pwiki:
+    build:
+      context: ./pwiki
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # ── Site settings ───────────────────────────────────────────────────────
+      PWIKI_SITE_NAME:   "MyWiki"
+      PWIKI_HOME_PAGE:   "index"
+      PWIKI_SECRET_KEY:  "${PWIKI_SECRET_KEY:?set PWIKI_SECRET_KEY in .env}"
+
+      # ── Path settings (container paths) ─────────────────────────────────────
+      # Data paths are connected to host paths by the volumes below.
+      PWIKI_DATA_DIR:    "/data/pwiki"
+      PWIKI_DB_PATH:     "/data/pwiki/pwiki.db"
+      # Markdown subtree exposed by pwiki inside the Git working tree.
+      # An empty PWIKI_MARKDOWN_SUBDIR exposes the whole Git root.
+      PWIKI_GIT_ROOT:    "/data/git"
+      PWIKI_MARKDOWN_DIR: "/data/git/${PWIKI_MARKDOWN_SUBDIR:-}"
+      PWIKI_READ_ONLY:   "${PWIKI_READ_ONLY:-1}"
+      PWIKI_DEFAULT_THEME: "system"  # system | light | dark
+      PWIKI_FILE_IO_LOG: "${PWIKI_FILE_IO_LOG:-0}"
+      PWIKI_LOG_FILE: "${PWIKI_LOG_FILE:-}"
+      PWIKI_LOG_ROTATION: "${PWIKI_LOG_ROTATION:-10 MB}"
+      PWIKI_LOG_RETENTION: "${PWIKI_LOG_RETENTION:-14 days}"
+      PWIKI_GIT_AUTO_COMMIT: "${PWIKI_GIT_AUTO_COMMIT:-0}"
+      PWIKI_MAX_CONTENT_LENGTH: "${PWIKI_MAX_CONTENT_LENGTH:-5242880}"
+
+      # ── Google OAuth / user permissions ─────────────────────────────────────
+      # Leave both empty to run in anonymous read-only mode.
+      GOOGLE_OAUTH_CLIENT_ID:     "${GOOGLE_OAUTH_CLIENT_ID:-}"
+      GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
+      PWIKI_ADMIN_GOOGLE_EMAIL:   "${PWIKI_ADMIN_GOOGLE_EMAIL:-}"
+      PWIKI_ALLOW_ANONYMOUS:      "${PWIKI_ALLOW_ANONYMOUS:-0}"
+
+      # ── Reverse-proxy sub-path settings ─────────────────────────────────────
+      # Use /newwiki when nginx serves the app under /newwiki.
+      # Keep this empty when serving directly at the root path.
+      PWIKI_URL_PREFIX: "${PWIKI_URL_PREFIX:-}"
+      # External URL for OAuth redirect URI generation. HTTPS is recommended behind a proxy.
+      PWIKI_PUBLIC_BASE_URL: "${PWIKI_PUBLIC_BASE_URL:-}"
+      PWIKI_SESSION_COOKIE_SECURE: "${PWIKI_SESSION_COOKIE_SECURE:-}"
+      PWIKI_SESSION_COOKIE_SAMESITE: "${PWIKI_SESSION_COOKIE_SAMESITE:-Lax}"
+
+      # ── Flask settings ──────────────────────────────────────────────────────
+      FLASK_DEBUG: "0"
+
+    volumes:
+      # ── pwiki data (SQLite DB, upload files, etc.) ──────────────────────────
+      - ./volumes/pwiki-data:/data/pwiki
+
+      # ── Obsidian Markdown / Git working tree ────────────────────────────────
+      # PWIKI_GIT_HOST_DIR points at the real host-side Git working tree.
+      # PWIKI_MARKDOWN_SUBDIR limits the Markdown scope visible to pwiki.
+      # Example: PWIKI_GIT_HOST_DIR=/srv/obsidian, PWIKI_MARKDOWN_SUBDIR=team/wiki
+      #     -> the app reads and writes only under /data/git/team/wiki.
+      # The volume defaults to rw. Web writes are controlled by PWIKI_READ_ONLY=1.
+      # Git sync requires a .git directory at the mount root.
+      - ${PWIKI_GIT_HOST_DIR:-./obsidata}:/data/git:${PWIKI_VAULT_MOUNT_MODE:-rw}
+
+      # ── Optional external config override ───────────────────────────────────
+      # Uncomment this if you want to edit config.py outside the image.
+      # - ./config/config.py:/app/config.py:ro

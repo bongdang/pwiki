@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Access Denied</h2>
+<p>{{ message or 'You do not have permission to access this page.' }}</p>
+{% if oauth_enabled %}
+<p>Ask an administrator for access, or <a href="{{ url_prefix }}/auth/google/login">log in</a> with another account.</p>
+{% else %}
+<p>Authentication is not configured for this deployment.</p>
+{% endif %}
+{% endblock %}

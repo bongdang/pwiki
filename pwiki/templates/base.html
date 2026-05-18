@@ -1,0 +1,191 @@
+{% macro render_tree(nodes) -%}
+<ul class="tree">
+{%- for node in nodes %}
+  {%- if node.type == 'dir' %}
+  <li class="tree-node tree-node-dir">
+    <div class="tree-row tree-folder" data-collapsed="{{ '0' if node.open else '1' }}">
+      <span class="tree-caret" aria-hidden="true"></span>
+      <span class="tree-icon" aria-hidden="true">📁</span>
+      <span class="tree-label">{{ node.name }}</span>
+    </div>
+    {%- if node.children %}{{ render_tree(node.children) }}{% endif %}
+  </li>
+  {%- else %}
+  <li class="tree-node tree-node-file{% if node.active %} is-active{% endif %}">
+    <a class="tree-row tree-link" href="{{ url_prefix }}/{{ node.path | urlencode }}">
+      <span class="tree-icon" aria-hidden="true">md</span>
+      <span class="tree-label">{{ node.name.removesuffix('.md') if node.name.endswith('.md') else node.name }}</span>
+    </a>
+  </li>
+  {%- endif %}
+{%- endfor %}
+</ul>
+{%- endmacro %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="{{ charset }}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ title }}{% endblock %} — {{ site_name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="{{ url_prefix }}/static/style.css?v={{ static_version('style.css') }}">
+<script>
+(function () {
+	  try {
+	    var stored = localStorage.getItem('mdwiki.theme');
+	    var configured = {{ default_theme|tojson }};
+	    var system = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	    var theme = stored || (configured === 'system' ? system : configured);
+	    document.documentElement.dataset.theme = theme;
+    if (localStorage.getItem('mdwiki.sidebarHidden') === '1') {
+      document.documentElement.dataset.sidebar = 'hidden';
+    }
+  } catch (e) {}
+})();
+</script>
+<script defer src="{{ url_prefix }}/static/app.js?v={{ static_version('app.js') }}"></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <header class="title-bar">
+    <div class="title-bar-left">
+      <span class="title-bar-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    </div>
+    <div class="title-bar-center">
+      {% block titlebar_center %}{{ page_id.replace('_', ' ') if page_id else site_name }}{% endblock %}
+    </div>
+    <div class="title-bar-right">
+      <button id="theme-toggle" class="chrome-btn" type="button" aria-label="Toggle theme" title="Toggle theme">☾</button>
+      <button id="sidebar-toggle" class="chrome-btn" type="button" aria-label="Toggle sidebar" title="Sidebar (⌘\)">⌃B</button>
+    </div>
+  </header>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <button id="mobile-menu-toggle" class="mobile-nav-link mobile-nav-button" type="button" aria-controls="mobile-menu" aria-expanded="false">Menu</button>
+    <a href="{{ url_prefix }}/" class="mobile-nav-link">Home</a>
+    <a href="{{ url_prefix }}/?action=search" class="mobile-nav-link">Search</a>
+    <span class="mobile-nav-title">{{ page_id.replace('_', ' ') if page_id else site_name }}</span>
+  </nav>
+
+  <div class="mobile-menu-backdrop" id="mobile-menu-backdrop" hidden></div>
+  <aside class="mobile-menu" id="mobile-menu" role="dialog" aria-modal="true" aria-label="Mobile menu" hidden>
+    <div class="mobile-menu-header">
+      <strong>Menu</strong>
+      <button id="mobile-menu-close" class="chrome-btn" type="button" aria-label="Close menu">Close</button>
+    </div>
+    <div class="mobile-menu-actions">
+      <a href="{{ url_prefix }}/">Home</a>
+      <a href="{{ url_prefix }}/?action=search">Search</a>
+      {% if is_logged_in %}
+        <a href="{{ url_prefix }}/auth/logout">Log out</a>
+      {% elif oauth_enabled %}
+        <a href="{{ url_prefix }}/auth/google/login">Log in</a>
+      {% else %}
+        <span>anonymous</span>
+      {% endif %}
+    </div>
+    <div class="mobile-menu-section-title">Folders</div>
+    <div class="mobile-tree" id="mobile-tree">
+      {% if page_tree %}
+        {{ render_tree(page_tree) }}
+      {% else %}
+        <p class="tree-empty">No pages.</p>
+      {% endif %}
+    </div>
+  </aside>
+
+  <div class="app-body">
+
+    <nav class="activity-rail" aria-label="Activity rail">
+      <a href="{{ url_prefix }}/" class="rail-btn rail-active" aria-label="Home" title="Home">🗂</a>
+      <a href="{{ url_prefix }}/?action=search" class="rail-btn" aria-label="Search" title="Search">🔍</a>
+      <span class="rail-btn rail-disabled" aria-disabled="true" title="Backlinks (deferred)">🔗</span>
+      <span class="rail-btn rail-disabled" aria-disabled="true" title="Recent (deferred)">⏱</span>
+      <span class="rail-btn rail-disabled" aria-disabled="true" title="Pinned (deferred)">⭐</span>
+      {% if is_admin %}
+      <a href="{{ url_prefix }}/_admin/users" class="rail-btn rail-admin" aria-label="Admin" title="Admin">⚙</a>
+      {% endif %}
+    </nav>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">Explorer</div>
+      <div class="sidebar-filter">
+        <input type="text" id="sidebar-filter-input" placeholder="filter pages" autocomplete="off">
+      </div>
+      <div class="sidebar-tree" id="sidebar-tree">
+        {% if page_tree %}
+          {{ render_tree(page_tree) }}
+        {% else %}
+          <p class="tree-empty">No pages.</p>
+        {% endif %}
+      </div>
+      <div class="sidebar-meta">
+        <span class="meta-count">{{ total_pages }} pages</span>
+        <span class="meta-user">
+          {% if is_logged_in %}
+            {% if is_admin %}
+              <a href="{{ url_prefix }}/_admin/users" title="OAuth user management">{{ username }}</a>
+            {% else %}
+              <span class="meta-user-label">{{ username }}</span>
+            {% endif %}
+            · <a href="{{ url_prefix }}/auth/logout">Log out</a>
+          {% elif oauth_enabled %}
+            <a href="{{ url_prefix }}/auth/google/login">Log in</a>
+          {% else %}
+            <span class="meta-user-label">anonymous</span>
+          {% endif %}
+        </span>
+        <span class="meta-status{% if git_status and git_status.dirty %} meta-status-dirty{% endif %}">
+          {% if git_status %}
+            ● {{ git_status.changes }} changes
+          {% elif read_only %}
+            ● read-only
+          {% else %}
+            ● write
+          {% endif %}
+        </span>
+      </div>
+    </aside>
+
+    <main class="main-pane">
+      <div class="tab-bar">
+        <div class="tab tab-active">
+          <span class="tab-label">{{ page_id.replace('_', ' ') if page_id else site_name }}</span>
+        </div>
+      </div>
+
+      <div class="breadcrumb">
+        {% if page_id %}
+          {% set parts = page_id.split('/') %}
+          {% for part in parts %}
+            <span class="crumb{% if loop.last %} crumb-active{% endif %}">{{ part.replace('_', ' ') }}</span>
+            {% if not loop.last %}<span class="crumb-sep">›</span>{% endif %}
+          {% endfor %}
+        {% else %}
+          <span class="crumb crumb-active">{{ site_name }}</span>
+        {% endif %}
+        <form method="GET" action="{{ url_prefix }}/" class="breadcrumb-search">
+          <input type="hidden" name="action" value="search">
+          <input type="text" name="q" placeholder="Search..." size="14">
+        </form>
+      </div>
+
+      <div class="content">
+        {% block content %}{% endblock %}
+      </div>
+
+      <footer class="status-bar">
+        <span class="status-left">
+          {% if git_status %}{{ git_status.label }} · {% endif %}UTF-8 · Markdown
+        </span>
+        <span class="status-right">{{ username if is_logged_in else 'anonymous' }}</span>
+      </footer>
+    </main>
+
+  </div>
+</div>
+</body>
+</html>

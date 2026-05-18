@@ -1,0 +1,23 @@
+imgs/*
+oldpage/*
+.aider*
+__pycache__/
+*/__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+pwiki/pages/**/*.db
+pwiki/users/
+*.swp
+wiki/upload/
+*.kp
+wiki/data/keep/**/*.kp
+.env
+.venv-install/
+obsidata/
+
+# 서버별 데이터 — 배포 서버에만 존재
+wiki/data/
+volumes/

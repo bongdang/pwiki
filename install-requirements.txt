@@ -1,0 +1,2 @@
+# install.py currently uses only Python's standard library.
+# Keep this file so install.sh has a stable place for future installer-only deps.

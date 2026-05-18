@@ -1,0 +1,28 @@
+# Locked pwiki runtime dependency set generated from the Python 3.13 local environment.
+# Refresh by resolving pwiki/requirements.txt and pinning the runtime package closure.
+Authlib==1.7.2
+blinker==1.9.0
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.3.2
+cryptography==46.0.6
+Flask==3.1.3
+gunicorn==23.0.0
+idna==3.11
+itsdangerous==2.2.0
+Jinja2==3.1.6
+loguru==0.7.3
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mdit-py-plugins==0.6.1
+mdurl==0.1.2
+pycparser==3.0
+Pygments==2.20.0
+requests==2.33.1
+rich==15.0.0
+shellingham==1.5.4
+typer==0.25.1
+typing_extensions==4.15.0
+urllib3==2.6.3
+Werkzeug==3.1.8

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p><a href="{{ url_prefix }}/_admin/users">&larr; User List</a></p>
+
+<h2>{{ user.email }}</h2>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+
+<section class="admin-section">
+  <h3>Basic Information</h3>
+  <dl class="admin-meta">
+    <dt>sub</dt><dd>{{ user.sub or '(pending — has not logged in yet)' }}</dd>
+    <dt>name</dt><dd>{{ user.name or '' }}</dd>
+    <dt>created at</dt><dd>{% if user.created_at %}<time datetime="{{ user.created_at }}" class="local-datetime">{{ user.created_at }}</time>{% endif %}</dd>
+    <dt>last login</dt><dd>{% if user.last_login_at %}<time datetime="{{ user.last_login_at }}" class="local-datetime">{{ user.last_login_at }}</time>{% endif %}</dd>
+    <dt>granted by</dt><dd>{{ user.granted_by or '' }}</dd>
+  </dl>
+</section>
+
+<section class="admin-section">
+  <h3>Default Permission / Admin</h3>
+  <form method="POST" action="{{ url_prefix }}/_admin/users/{{ user.email | urlencode }}" class="admin-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="op" value="update">
+    <label for="user-default-permission">Default permission</label>
+    <select id="user-default-permission" name="default_permission">
+      {% for p in permissions %}
+      <option value="{{ p }}" {% if p == user.default_permission %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+    <label class="checkbox" for="user-is-admin">
+      <input id="user-is-admin" type="checkbox" name="is_admin" value="1" {% if user.is_admin %}checked{% endif %}> admin
+    </label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+
+<section class="admin-section">
+  <h3>Path Overrides</h3>
+  {% if paths %}
+  <table class="rc">
+    <thead>
+      <tr>
+        <th>prefix</th>
+        <th>permission</th>
+        <th>granted by</th>
+        <th>actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in paths %}
+      <tr>
+        <td>{{ p.prefix or '(root)' }}</td>
+        <td>{{ p.permission }}</td>
+        <td>{{ p.granted_by or '' }}</td>
+        <td>
+          <form method="POST" action="{{ url_prefix }}/_admin/users/{{ user.email | urlencode }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="op" value="path-revoke">
+            <input type="hidden" name="prefix" value="{{ p.prefix }}">
+            <button type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No overrides. Only the default permission applies.</p>
+  {% endif %}
+
+  <h4>Add Override</h4>
+  <form method="POST" action="{{ url_prefix }}/_admin/users/{{ user.email | urlencode }}" class="admin-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="op" value="path-grant">
+    <label for="path-prefix">prefix</label>
+    <input id="path-prefix" type="text" name="prefix"
+           list="prefix-folders" autocomplete="off"
+           placeholder="Shared/Family  (empty string = root)">
+    <datalist id="prefix-folders">
+      {% for sugg in prefix_suggestions.folders %}
+      <option value="{{ sugg }}"></option>
+      {% endfor %}
+    </datalist>
+    <datalist id="prefix-all">
+      {% for sugg in prefix_suggestions.all %}
+      <option value="{{ sugg }}"></option>
+      {% endfor %}
+    </datalist>
+    <label for="path-permission">permission</label>
+    <select id="path-permission" name="permission">
+      {% for p in permissions %}
+      <option value="{{ p }}">{{ p }}</option>
+      {% endfor %}
+    </select>
+    <label class="checkbox" for="path-file-pick">
+      <input id="path-file-pick" type="checkbox" data-prefix-toggle>
+      Select individual files
+    </label>
+    <label class="checkbox" for="path-allow-missing">
+      <input id="path-allow-missing" type="checkbox" name="allow_missing" value="1">
+      Allow non-existent paths
+    </label>
+    <button type="submit">Add</button>
+  </form>
+</section>
+{% endblock %}

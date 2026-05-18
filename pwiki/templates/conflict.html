@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p><strong>Someone saved this page after you started editing.</strong></p>
+<p>Last save: {{ saved_time }} / Current: {{ current_time }}</p>
+<p>The <strong>top textarea</strong> is what will be saved. Merge your changes manually.</p>
+
+<form method="POST" action="{{ url_prefix }}/{{ page_id | urlencode }}">
+    <input type="hidden" name="action" value="save">
+    <input type="hidden" name="oldtime" value="{{ new_time }}">
+    <input type="hidden" name="oldhash" value="{{ current_hash }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p><strong>Current saved text (will be saved):</strong></p>
+    <textarea name="text" rows="12" cols="80">{{ old_text }}</textarea>
+    <p><strong>Your submitted text:</strong></p>
+    <textarea name="newtext" rows="12" cols="80" readonly>{{ new_text }}</textarea>
+    <p>
+        <label for="summary">Summary:</label>
+        <input type="text" id="summary" name="summary" size="60">
+    </p>
+    <p>
+        <input type="submit" value="Save">
+        <a href="{{ url_prefix }}/{{ page_id | urlencode }}">Cancel</a>
+    </p>
+</form>
+{% endblock %}

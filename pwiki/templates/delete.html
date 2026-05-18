@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p>Are you sure you want to delete <strong>{{ page_id }}</strong>?</p>
+<p>This Markdown file will be deleted. History is expected to come from Git, not <code>keep/</code>.</p>
+
+<form method="POST" action="{{ url_prefix }}/{{ page_id | urlencode }}">
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p>
+    <input type="submit" value="Yes, delete this page" style="color:red">
+    &nbsp;
+    <a href="{{ url_prefix }}/{{ page_id | urlencode }}">Cancel</a>
+  </p>
+</form>
+{% endblock %}
