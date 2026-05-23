@@ -45,6 +45,14 @@ services:
       PWIKI_SESSION_COOKIE_SECURE: "${PWIKI_SESSION_COOKIE_SECURE:-}"
       PWIKI_SESSION_COOKIE_SAMESITE: "${PWIKI_SESSION_COOKIE_SAMESITE:-Lax}"
 
+      # ── Internal read-only API (off unless token is set) ───────────────────
+      # /api/internal/* is disabled when PWIKI_INTERNAL_API_TOKEN is empty.
+      # The allowed-CIDRs default (loopback + RFC1918) is applied inside the
+      # app when the env var is empty, so leaving it unset here is safe.
+      PWIKI_INTERNAL_API_TOKEN:              "${PWIKI_INTERNAL_API_TOKEN:-}"
+      PWIKI_INTERNAL_API_ALLOWED_CIDRS:      "${PWIKI_INTERNAL_API_ALLOWED_CIDRS:-}"
+      PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS: "${PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS:-}"
+
       # ── Flask settings ──────────────────────────────────────────────────────
       FLASK_DEBUG: "0"
 

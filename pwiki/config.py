@@ -101,3 +101,12 @@ SESSION_COOKIE_SAMESITE = os.environ.get('PWIKI_SESSION_COOKIE_SAMESITE', 'Lax')
 # HTTP settings
 HTTP_CHARSET  = 'utf-8'
 URL_PROTOCOLS = 'http|https|ftp|mailto'
+
+# Internal read-only API (separate from the OAuth web UI). When the token is
+# empty the entire /api/internal/* surface is disabled (returns 404). The CIDR
+# allowlist defaults to loopback + RFC1918 ranges so accidental public exposure
+# still fails closed. Trusted-proxy CIDRs is an explicit opt-in for honoring
+# X-Forwarded-For from a reverse proxy in front of the API.
+INTERNAL_API_TOKEN = os.environ.get('PWIKI_INTERNAL_API_TOKEN', '').strip()
+INTERNAL_API_ALLOWED_CIDRS = os.environ.get('PWIKI_INTERNAL_API_ALLOWED_CIDRS', '').strip()
+INTERNAL_API_TRUSTED_PROXY_CIDRS = os.environ.get('PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS', '').strip()

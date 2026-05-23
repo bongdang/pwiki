@@ -50,6 +50,12 @@ Obsidian remains the primary editing tool, while pwiki handles remote browsing, 
 - Sync / status / commit / push for Git-managed vaults
 - Conflict detection on save; atomic writes preserve existing newline style
 
+**Programmatic access**
+
+- Optional read-only JSON API at `/api/internal/*` for trusted same-host or private-network consumers (a local AI assistant, RAG pipeline, backup script, etc.)
+- Bearer-token + CIDR-allowlist authentication that lives entirely outside the OAuth web flow
+- Read-only by contract — only `GET` handlers are registered; off by default until you set a token
+
 **Operations**
 
 - Reverse-proxy sub-path deployment support
@@ -170,6 +176,9 @@ The full annotated list lives in `.env.example`. The ones you tend to touch most
 | `PWIKI_ADMIN_GOOGLE_EMAIL` | Google email seeded as the first admin |
 | `PWIKI_PUBLIC_BASE_URL` | External base URL (used to build the OAuth redirect URI behind a proxy) |
 | `PWIKI_URL_PREFIX` | URL path such as `/newwiki` when serving under a sub-path |
+| `PWIKI_INTERNAL_API_TOKEN` | Bearer token that enables `/api/internal/*`. Empty disables the whole local API. |
+| `PWIKI_INTERNAL_API_ALLOWED_CIDRS` | CIDR allowlist for the local API. Defaults to loopback + RFC1918. |
+| `PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS` | CIDRs whose `X-Forwarded-For` may be honored. Empty = always use `remote_addr`. |
 
 ## Permission Model
 
@@ -197,6 +206,58 @@ python -m pwiki.cli users show alice@example.com
 Admin users can perform the same kind of management from the web admin UI.
 
 Unauthorized pages are not only blocked on direct access; they are also hidden from the sidebar, mobile drawer, search results, and index listing. This makes it practical to keep one vault while sharing only selected folders with family members or colleagues.
+
+## Local Read-Only API
+
+Alongside the OAuth-protected web UI, pwiki ships a separate read-only JSON API at `/api/internal/*` that is designed for *trusted* same-host or private-network consumers — a local AI assistant, a RAG pipeline, a backup or indexing script, etc. The surface is disabled until you set `PWIKI_INTERNAL_API_TOKEN`, so an unconfigured deployment exposes nothing.
+
+Why a separate API instead of just calling the web UI?
+
+- **No OAuth round-trip.** A background process or local AI agent does not have a browser or a Google session. The API uses a single Bearer token instead, so calling it from a script or scheduler is trivial.
+- **Read-only by contract.** Only `GET` handlers are registered; no save, delete, or upload path exists on this surface. You can hand the token to a local script without worrying about accidental writes.
+- **Defense in depth.** Every request is checked against a CIDR allowlist (default: loopback + RFC1918) *before* the token is even compared, and `X-Forwarded-For` is ignored unless you explicitly opt in via `PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS`. A leaked token alone is not enough to read from outside your private network.
+- **Path-safe.** Every `path` argument is resolved with `os.path.realpath` against the vault root, so `..` traversal and symlinks pointing outside the vault are rejected with `403 forbidden_path`.
+- **Always fresh.** Each request walks the filesystem directly — no in-process cache. Deleting or editing a file on disk shows up on the next call, no server restart required.
+- **Same vault, no duplication.** The API reads exactly the same Markdown files the web UI does. There is no separate index to keep in sync.
+
+### Why not just MCP?
+
+A fair question — if you already have an MCP-capable client like Claude Desktop, why not expose the vault through an MCP server and let the model query it directly?
+
+The two approaches optimize for different workloads. **MCP makes the LLM the orchestrator**: every `search` → `read` → `search` round-trip is another tool result accumulating in the model's context, plus the tool definitions sitting in the system prompt. That's a great fit for free-form conversational exploration ("find anything about X and summarize"), but it gets expensive when you want to do the same thing on a schedule, or run it dozens of times a day.
+
+**The internal API lets *you* be the orchestrator**, which moves filtering, ranking, deduplication, and chunking out of the LLM's context entirely. A local RAG pipeline can embed the whole vault with a local model, look up the top-k chunks via this API, and send only the relevant snippets to the LLM — often a single round-trip per question. Non-LLM consumers (backup scripts, daily-digest cron jobs, local indexers) spend zero tokens at all. The read-only constraint isn't a weakness here; most of these workloads never need to write back, and dropping the write surface keeps the threat model small.
+
+The two are complementary, not competing. For a chat-style "ask my notes anything" experience, MCP is the cleaner fit. For repeatable, schedulable, token-frugal automation against the same vault, this API is the cleaner fit — and nothing stops you from running both side by side.
+
+Endpoints:
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/internal/health` | Service liveness — confirms the API is enabled and you passed both guards. |
+| `GET /api/internal/search?q=<query>&limit=<1..100>` | Case-insensitive filename + body search (default `limit=20`). Snippets are localized around the match. |
+| `GET /api/internal/page?path=<vault-relative .md path>` | Returns full Markdown content + title + mtime for one page. |
+| `GET /api/internal/folder?path=<folder>&recursive=<bool>&limit=<1..500>` | Lists `.md` files and sub-folders. Hidden entries, `.git`, and non-Markdown attachments are filtered. |
+
+The error envelope is the same everywhere:
+
+```json
+{ "error": { "code": "unauthorized", "message": "Invalid internal API token." } }
+```
+
+Quick smoke test:
+
+```bash
+export PWIKI_INTERNAL_API_TOKEN='a-long-random-token'
+
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  http://127.0.0.1:5000/api/internal/health
+
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  "http://127.0.0.1:5000/api/internal/search?q=oauth&limit=10"
+```
+
+**Important:** do *not* expose `/api/internal/*` through your public reverse proxy. The API is meant to be reached on `localhost` or a private network. If your nginx config publishes everything under `/`, add an explicit `location /api/internal/ { return 404; }` block, or bind the container to `127.0.0.1` in `docker-compose.yml`.
 
 ## Security Defaults
 

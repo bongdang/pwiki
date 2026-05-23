@@ -26,6 +26,7 @@ import config
 import db
 import oauth as oauth_module
 import permissions
+from internal_api import register_internal_api
 from vault import (
     GitOperationError,
     blocking_git_state,
@@ -1835,6 +1836,10 @@ def _register_admin_routes() -> None:
 
 
 _register_admin_routes()
+
+
+# Internal read-only API for same-host / private-network consumers.
+register_internal_api(app)
 
 
 # ---------------------------------------------------------------------------

@@ -231,6 +231,9 @@ When `PWIKI_URL_PREFIX=/newwiki`, test through the reverse proxy path
 | `PWIKI_VAULT_MOUNT_MODE` | Compose volume mode for the vault, usually `rw` or `ro`. |
 | `PWIKI_LOG_FILE` | Optional rotating log file path, for example `/data/pwiki/pwiki.log`. |
 | `PWIKI_MAX_CONTENT_LENGTH` | Flask request body limit in bytes. Default is 5 MiB. |
+| `PWIKI_INTERNAL_API_TOKEN` | Bearer token for `/api/internal/*`. Empty disables the internal API entirely. |
+| `PWIKI_INTERNAL_API_ALLOWED_CIDRS` | CIDR allowlist for the internal API. Defaults to loopback + RFC1918. |
+| `PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS` | CIDRs whose `X-Forwarded-For` may be honored when computing the client IP. Empty = always use `remote_addr`. |
 
 ## 7. Read-Only, Writes, and Mount Mode
 
@@ -282,6 +285,41 @@ docker compose exec pwiki sh -lc 'python -m pwiki.cli users show alice@example.c
 
 Admins can also manage users from `/_admin/users`, or
 `/<PWIKI_URL_PREFIX>/_admin/users` when deployed under a sub-path.
+
+## 8b. Internal Read-Only API
+
+A separate read-only JSON API is available at `/api/internal/*` for same-host
+or private-network consumers (typical use: an internal AI assistant that needs
+to search and read documents without going through Google OAuth). The surface
+is disabled until `PWIKI_INTERNAL_API_TOKEN` is set, and every request is
+checked against `PWIKI_INTERNAL_API_ALLOWED_CIDRS` (default: loopback plus
+RFC1918).
+
+Quick smoke test:
+
+```bash
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  http://127.0.0.1:5000/api/internal/health
+
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  "http://127.0.0.1:5000/api/internal/search?q=oauth&limit=10"
+
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  "http://127.0.0.1:5000/api/internal/page?path=Projects/pwiki.md"
+
+curl -H "Authorization: Bearer $PWIKI_INTERNAL_API_TOKEN" \
+  "http://127.0.0.1:5000/api/internal/folder?path=Projects&recursive=false"
+```
+
+Safety guidelines:
+
+- Do **not** publish `/api/internal/*` through your public reverse proxy. Bind
+  the API consumer to localhost or a private network.
+- Set `PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS` only if a known reverse proxy
+  fronts the API and you want `X-Forwarded-For` honored. Without it the API
+  trusts only `request.remote_addr`, preventing header spoofing.
+- The API is read-only by contract — every handler is `GET`-only and rejects
+  any path that escapes the vault via `..` or a symlink target.
 
 ## 9. Git Sync
 
