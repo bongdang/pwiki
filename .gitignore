@@ -15,7 +15,7 @@ wiki/upload/
 *.kp
 wiki/data/keep/**/*.kp
 .env
-.venv-install/
+.venv/
 obsidata/
 
 # 서버별 데이터 — 배포 서버에만 존재

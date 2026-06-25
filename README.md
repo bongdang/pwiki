@@ -123,7 +123,7 @@ The project intentionally stays minimal: Flask, Jinja2, and a small amount of va
 
 ## Requirements
 
-- Python 3.11 or newer. The lockfile and the project's `PYENV_VERSION` target use 3.13, so that's the version that gets the most testing.
+- Python 3.11 or newer. The lockfile and the project's `.python-version` (used by `uv`) target 3.13, so that's the version that gets the most testing.
 - Docker and Docker Compose for the standard deployment path.
 - An Obsidian vault on disk. If you want sync to work smoothly, manage the vault with Git.
 - A Linux or macOS host. Other Unix-like systems should also work; Windows is untested.
@@ -202,6 +202,10 @@ python -m pwiki.cli users path-grant alice@example.com Shared/Family read
 python -m pwiki.cli users path-grant alice@example.com Private none
 python -m pwiki.cli users show alice@example.com
 ```
+
+> Inside the Docker container the module is `cli`, not `pwiki.cli` — e.g.
+> `docker compose exec -T pwiki sh -lc 'python -m cli users list'`. From a source
+> checkout, run it through uv: `uv run python -m pwiki.cli users list`.
 
 Admin users can perform the same kind of management from the web admin UI.
 
@@ -298,20 +302,21 @@ A few things to keep in mind:
 
 ## Local Run
 
-To try pwiki locally without Docker, install the Python dependencies and run the app from the repository root:
+To try pwiki locally without Docker, use [uv](https://docs.astral.sh/uv/) from
+the repository root (Python is pinned by `.python-version`):
 
 ```bash
-pip install -r pwiki/requirements.txt
-PWIKI_MARKDOWN_DIR=./your-vault PWIKI_ALLOW_ANONYMOUS=1 python pwiki/app.py
+uv sync
+PWIKI_MARKDOWN_DIR=./your-vault PWIKI_ALLOW_ANONYMOUS=1 uv run python pwiki/app.py
 ```
 
-There are three requirements files in the repo, each for a different job:
+Dependency files in the repo, each for a different job:
 
 | File | What it's for |
 |---|---|
-| `pwiki/requirements.txt` | The everyday development install, with loose version pins. |
-| `pwiki/requirements.lock.txt` | The reproducible runtime install — this is what the Docker image uses. |
-| `install-requirements.txt` | Reserved for `install.sh`'s own dependencies. It's empty right now because the installer only uses Python's standard library. |
+| `pyproject.toml` | Source of truth for dependencies; uv resolves it into `uv.lock` and the `.venv`. |
+| `pwiki/requirements.lock.txt` | The reproducible runtime install the Docker image uses (plain `pip`). Regenerated from `pyproject.toml` with `uv export`. |
+| `pwiki/requirements.txt` | Loose-pin app deps kept for plain `pip install -r` users who aren't on uv. |
 
 For the full deployment procedure see [`deploy.md`](deploy.md).
 

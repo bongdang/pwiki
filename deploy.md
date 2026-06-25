@@ -199,8 +199,8 @@ docker compose logs -f pwiki
 Check the container configuration:
 
 ```bash
-docker compose run --rm pwiki python -m pwiki.cli config show
-docker compose run --rm pwiki python -m pwiki.cli vault git-status "$PWIKI_MARKDOWN_DIR"
+docker compose run --rm pwiki python -m cli config show
+docker compose run --rm pwiki python -m cli vault git-status "$PWIKI_MARKDOWN_DIR"
 ```
 
 Initial smoke checks:
@@ -275,12 +275,12 @@ Use HTTPS for production. Localhost is the only normal HTTP exception.
 Admin/user management:
 
 ```bash
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users list'
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users grant alice@example.com --default-permission read'
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users grant admin2@example.com --admin --default-permission write'
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users path-grant alice@example.com Shared/Family read'
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users path-grant alice@example.com Private none'
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users show alice@example.com'
+docker compose exec pwiki sh -lc 'python -m cli users list'
+docker compose exec pwiki sh -lc 'python -m cli users grant alice@example.com --default-permission read'
+docker compose exec pwiki sh -lc 'python -m cli users grant admin2@example.com --admin --default-permission write'
+docker compose exec pwiki sh -lc 'python -m cli users path-grant alice@example.com Shared/Family read'
+docker compose exec pwiki sh -lc 'python -m cli users path-grant alice@example.com Private none'
+docker compose exec pwiki sh -lc 'python -m cli users show alice@example.com'
 ```
 
 Admins can also manage users from `/_admin/users`, or
@@ -323,34 +323,50 @@ Safety guidelines:
 
 ## 9. Git Sync
 
-pwiki can inspect status, run sync, commit exposed-scope changes, and optionally
-push. Git history remains the history for your Markdown vault.
+pwiki reads Markdown from disk, so syncing the vault is just a Git pull of the
+host working tree. **Run the pull on the host, not inside the container.** The
+container image ships without an SSH client or keys, so it cannot reach an SSH
+Git remote; your host login user already has the `~/.ssh` credentials. The vault
+`.git` is the same directory the container mounts (`PWIKI_GIT_HOST_DIR` →
+`/data/git`), so a host-side pull is immediately visible to pwiki with no
+restart.
 
-Manual sync:
+Manual sync (on the host):
 
 ```bash
-docker compose exec -T pwiki sh -lc 'python -m pwiki.cli vault sync "$PWIKI_MARKDOWN_DIR"'
+# from the repo root; PWIKI_GIT_HOST_DIR comes from the deployment .env
+set -a; . ./.env; set +a
+git -C "$PWIKI_GIT_HOST_DIR" pull --ff-only
 ```
 
 Manual status:
 
 ```bash
-docker compose exec -T pwiki sh -lc 'python -m pwiki.cli vault git-status "$PWIKI_MARKDOWN_DIR"'
+git -C "$PWIKI_GIT_HOST_DIR" fetch && git -C "$PWIKI_GIT_HOST_DIR" status -sb
 ```
 
-Manual commit:
+Inspection helpers (read-only) can still run inside the container, which has the
+`git` binary:
 
 ```bash
-docker compose exec -T pwiki sh -lc 'python -m pwiki.cli vault commit "$PWIKI_MARKDOWN_DIR" --page index.md --author-email you@example.com --push'
+docker compose exec -T pwiki sh -lc 'python -m cli vault git-status "$PWIKI_MARKDOWN_DIR"'
 ```
+
+> Note the in-container CLI is `python -m cli` (the image flattens the package to
+> top-level modules at `/app`), not `python -m pwiki.cli`. The `pwiki.cli` form
+> only works in the source repo where `pwiki/` is an importable package.
 
 Operational policy:
 
-- Automatic pull is handled outside the Flask app.
-- Use a systemd timer, cron, or another scheduler to run `vault sync`.
-- `vault sync` requires a clean working tree and uses `git pull --ff-only`.
-- `vault commit` stages only the exposed Markdown scope.
-- Web saves are blocked during merge, rebase, or conflict states.
+- Automatic pull is handled outside the Flask app, on the host.
+- Use a systemd timer (see below), cron, or another scheduler to run the pull.
+- `git pull --ff-only` refuses to run on a diverged/dirty tree, so an unexpected
+  local commit on the server surfaces as a failure instead of an automatic merge.
+- Keep the server vault pull-only: set `PWIKI_READ_ONLY=1` and leave
+  `PWIKI_GIT_AUTO_COMMIT` unset so the server never creates commits that would
+  diverge from the remote.
+- Pushing from the server (e.g. `PWIKI_GIT_AUTO_COMMIT=1`) needs SSH inside the
+  container and is intentionally not part of this pull-only flow.
 
 ### systemd Timer
 
@@ -360,22 +376,28 @@ Example units live in:
 deploy/systemd/
 ```
 
-For system units, adjust `WorkingDirectory` if your deployment is not
-`/srv/newwiki`, then install:
+The service unit reads `PWIKI_GIT_HOST_DIR` from the deployment `.env` via
+`EnvironmentFile=` and runs `git -C "$PWIKI_GIT_HOST_DIR" pull --ff-only` on the
+host. The example files use a `/srv/newwiki` placeholder for both
+`WorkingDirectory` and `EnvironmentFile`; adjust them if the repository lives
+elsewhere. (`./install.py` rewrites these to the actual repo path automatically
+when it installs the **user** units.)
 
-```bash
-sudo cp deploy/systemd/pwiki-vault-sync.service.example /etc/systemd/system/pwiki-vault-sync.service
-sudo cp deploy/systemd/pwiki-vault-sync.timer.example /etc/systemd/system/pwiki-vault-sync.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now pwiki-vault-sync.timer
-systemctl list-timers pwiki-vault-sync.timer
-```
+**Prefer the user units.** They run as your login user, so the host `~/.ssh`
+keys reach an SSH Git remote without extra configuration. A **system** unit runs
+as root, which usually lacks those keys — uncomment `User=`/`Group=` in the
+service file to run it as an account that can reach the remote.
 
-For user units:
+For user units (the easiest path is `./install.py`, which writes these with the
+correct repo path already; the manual steps below substitute `/srv/newwiki`
+yourself):
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp deploy/systemd/user-pwiki-vault-sync.service.example ~/.config/systemd/user/pwiki-vault-sync.service
+# Replace /srv/newwiki with the absolute path to this repo so EnvironmentFile
+# points at the real .env.
+sed "s#/srv/newwiki#$PWD#g" deploy/systemd/user-pwiki-vault-sync.service.example \
+  > ~/.config/systemd/user/pwiki-vault-sync.service
 cp deploy/systemd/user-pwiki-vault-sync.timer.example ~/.config/systemd/user/pwiki-vault-sync.timer
 systemctl --user daemon-reload
 systemctl --user enable --now pwiki-vault-sync.timer
@@ -386,6 +408,17 @@ Enable linger if the user timer must run without an active login session:
 
 ```bash
 loginctl enable-linger "$USER"
+```
+
+For system units (root) instead, edit `User=`/`Group=` and the `/srv/newwiki`
+paths in the service file first, then:
+
+```bash
+sudo cp deploy/systemd/pwiki-vault-sync.service.example /etc/systemd/system/pwiki-vault-sync.service
+sudo cp deploy/systemd/pwiki-vault-sync.timer.example /etc/systemd/system/pwiki-vault-sync.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now pwiki-vault-sync.timer
+systemctl list-timers pwiki-vault-sync.timer
 ```
 
 ## 10. nginx Reverse Proxy
@@ -437,8 +470,8 @@ docker compose up -d
 From the repository root:
 
 ```bash
-pip install -r pwiki/requirements.txt
-PWIKI_MARKDOWN_DIR=./your-vault PWIKI_ALLOW_ANONYMOUS=1 python pwiki/app.py
+uv sync
+PWIKI_MARKDOWN_DIR=./your-vault PWIKI_ALLOW_ANONYMOUS=1 uv run python pwiki/app.py
 ```
 
 For local OAuth smoke testing:
@@ -446,7 +479,6 @@ For local OAuth smoke testing:
 ```bash
 mkdir -p /tmp/pwiki-vault /tmp/pwiki-data
 cd pwiki
-PYENV_VERSION=v3.13 \
 PWIKI_MARKDOWN_DIR=/tmp/pwiki-vault \
 PWIKI_DATA_DIR=/tmp/pwiki-data \
 PWIKI_DB_PATH=/tmp/pwiki-data/pwiki.db \
@@ -456,7 +488,7 @@ GOOGLE_OAUTH_CLIENT_ID=... \
 GOOGLE_OAUTH_CLIENT_SECRET=... \
 PWIKI_ADMIN_GOOGLE_EMAIL=you@example.com \
 FLASK_PORT=5000 \
-python app.py
+uv run python app.py
 ```
 
 Register this redirect URI in Google Cloud Console:
@@ -535,7 +567,7 @@ container path successfully but found no Markdown files there. Re-check
 Grant an admin user through the CLI:
 
 ```bash
-docker compose exec pwiki sh -lc 'python -m pwiki.cli users grant you@example.com --admin --default-permission write'
+docker compose exec pwiki sh -lc 'python -m cli users grant you@example.com --admin --default-permission write'
 ```
 
 Or update `PWIKI_ADMIN_GOOGLE_EMAIL` in `.env` and restart. Seeding is

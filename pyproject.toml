@@ -1,0 +1,26 @@
+[project]
+name = "pwiki"
+version = "0.1.0"
+description = "Flask + Obsidian-style Markdown wiki for self-hosted vaults"
+requires-python = ">=3.11"
+dependencies = [
+    "Flask>=2.0.0",
+    "markdown-it-py>=3.0.0",
+    "mdit-py-plugins>=0.4.0",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "loguru>=0.7.0",
+    "Authlib>=1.3.0",
+    "requests>=2.31.0",
+    # Production WSGI server used by the Docker image (CMD gunicorn app:app).
+    "gunicorn>=23.0.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+
+[tool.uv]
+# pwiki ships as flat top-level modules under pwiki/ (run via `python app.py` /
+# gunicorn `app:app`), not as an installable wheel. Treat this as a virtual
+# project: uv manages the venv + dependencies but does not build/install pwiki.
+package = false

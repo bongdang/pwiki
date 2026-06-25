@@ -1,8 +1,18 @@
 [Unit]
-Description=pwiki vault Git sync (user)
+Description=pwiki vault Git sync (user, host-side git pull)
 After=default.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/srv/pwiki
-ExecStart=/usr/bin/docker compose exec -T pwiki sh -lc 'python -m pwiki.cli vault sync "$PWIKI_MARKDOWN_DIR"'
+# install.py rewrites the /srv/newwiki placeholders below to this repository's
+# absolute path, so the unit reads the real deployment .env (which holds
+# PWIKI_GIT_HOST_DIR) regardless of where the repo is checked out.
+WorkingDirectory=/srv/newwiki
+EnvironmentFile=/srv/newwiki/.env
+# Fast-forward pull on the host (NOT inside the container): the container image
+# ships without an SSH client or keys, while your login user already has the
+# ~/.ssh credentials needed for an SSH Git remote. PWIKI_GIT_HOST_DIR must be an
+# absolute path to the vault Git working tree. --ff-only refuses to run on a
+# diverged/dirty tree, so an unexpected local commit surfaces as a failure
+# instead of an automatic merge.
+ExecStart=/bin/sh -lc 'git -C "$PWIKI_GIT_HOST_DIR" pull --ff-only'

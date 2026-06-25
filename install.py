@@ -587,16 +587,14 @@ def print_proxy_and_oauth_guidance(env: dict[str, str]) -> None:
 
 def install_user_systemd(assume_yes: bool) -> None:
     USER_SYSTEMD_DIR.mkdir(parents=True, exist_ok=True)
+    # The template ships with /srv/newwiki placeholders for WorkingDirectory and
+    # EnvironmentFile. Rewrite every occurrence to this repository's absolute
+    # path so the unit reads the real deployment .env (which holds
+    # PWIKI_GIT_HOST_DIR) and runs `git pull` against the right working tree.
     service_text = USER_SERVICE_TEMPLATE.read_text(encoding="utf-8").replace(
-        "WorkingDirectory=/srv/newwiki",
-        f"WorkingDirectory={REPO_ROOT}",
+        "/srv/newwiki",
+        str(REPO_ROOT),
     )
-    # The template's `/usr/bin/docker` is the Debian/Ubuntu default path.
-    # snap, brew (/usr/local/bin), and other installs can use different paths,
-    # so replace it with the docker binary found on this host.
-    docker_path = shutil.which("docker")
-    if docker_path and docker_path != "/usr/bin/docker":
-        service_text = service_text.replace("/usr/bin/docker", docker_path)
     timer_text = USER_TIMER_TEMPLATE.read_text(encoding="utf-8")
 
     write_file_with_prompt(USER_SERVICE_TARGET, service_text, assume_yes)
