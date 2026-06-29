@@ -187,6 +187,7 @@ def commit_git(
     message: str,
     author_email: str | None = None,
     push: bool = False,
+    rebase_before_push: bool = False,
 ) -> GitStatus:
     context = resolve_git_context(root)
     scope_arg = context.scope.as_posix() if context.scope.parts else "."
@@ -223,9 +224,46 @@ def commit_git(
     _run_git(context.git_root, commit_command, check=True)
 
     if push:
+        if rebase_before_push:
+            _rebase_onto_upstream(context.git_root)
         _run_git(context.git_root, ["push"], check=True)
 
     return git_status(context.content_root)
+
+
+def _rebase_onto_upstream(git_root: Path) -> None:
+    """Replay local commits onto the tracking branch before a push.
+
+    Heals the common divergence where a web commit lands on a base the remote
+    has moved past (another editor or Obsidian pushed first): rebasing makes the
+    later push a fast-forward. On a real content conflict the rebase is aborted
+    so the working tree never lingers in a rebase/conflict state — the local
+    commit is kept, the push is skipped, and the caller surfaces the error.
+
+    No-ops when there is no upstream (a local-only repo, e.g. tests) or when the
+    remote is unreachable, leaving the subsequent `push` to report the failure.
+    """
+    upstream = _run_git(
+        git_root,
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        check=False,
+    )
+    if upstream.returncode != 0:
+        return  # no tracking branch configured → nothing to rebase onto
+
+    fetch = _run_git(git_root, ["fetch"], check=False)
+    if fetch.returncode != 0:
+        return  # offline / remote unreachable → let push surface the error
+
+    rebase = _run_git(git_root, ["rebase", "@{upstream}"], check=False)
+    if rebase.returncode != 0:
+        _run_git(git_root, ["rebase", "--abort"], check=False)
+        detail = (rebase.stderr or rebase.stdout).strip()
+        raise GitOperationError(
+            "auto-rebase onto upstream hit a conflict; the local commit was kept "
+            "but not pushed. Resolve the divergence manually (e.g. in Obsidian) "
+            "and sync again." + (f" [{detail}]" if detail else "")
+        )
 
 
 def default_commit_message(page_path: str | None = None) -> str:

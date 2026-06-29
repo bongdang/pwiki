@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
-![Status: v0.1 early release](https://img.shields.io/badge/status-v0.1%20early%20release-orange.svg)
+![Status: v0.2.0](https://img.shields.io/badge/status-v0.2.0-blue.svg)
 
 English | [한국어](README.ko.md)
 
@@ -47,7 +47,8 @@ Obsidian remains the primary editing tool, while pwiki handles remote browsing, 
 **Editing & Git**
 
 - Read-only by default; web editing is opt-in per user and path
-- Sync / status / commit / push for Git-managed vaults
+- File / image upload from the editor (toolbar button, clipboard paste, drag-and-drop) — saved inside the vault and embedded as `![[attachments/…]]`, so it syncs back to Obsidian like any other file
+- Sync / status / commit / push for Git-managed vaults; saves, deletes, and uploads can auto-commit and push (with optional rebase to absorb concurrent edits)
 - Conflict detection on save; atomic writes preserve existing newline style
 
 **Programmatic access**
@@ -123,7 +124,7 @@ The project intentionally stays minimal: Flask, Jinja2, and a small amount of va
 
 ## Requirements
 
-- Python 3.11 or newer. The lockfile and the project's `.python-version` (used by `uv`) target 3.13, so that's the version that gets the most testing.
+- Python 3.11 or newer (the standard Docker image runs 3.13, which gets the most testing).
 - Docker and Docker Compose for the standard deployment path.
 - An Obsidian vault on disk. If you want sync to work smoothly, manage the vault with Git.
 - A Linux or macOS host. Other Unix-like systems should also work; Windows is untested.
@@ -197,15 +198,14 @@ For example, a user can have default `none` permission while receiving `read` ac
 Permissions can be managed through both the CLI and the web admin UI.
 
 ```bash
-python -m pwiki.cli users grant alice@example.com --default-permission read
-python -m pwiki.cli users path-grant alice@example.com Shared/Family read
-python -m pwiki.cli users path-grant alice@example.com Private none
-python -m pwiki.cli users show alice@example.com
+python -m cli users grant alice@example.com --default-permission read
+python -m cli users path-grant alice@example.com Shared/Family read
+python -m cli users path-grant alice@example.com Private none
+python -m cli users show alice@example.com
 ```
 
-> Inside the Docker container the module is `cli`, not `pwiki.cli` — e.g.
-> `docker compose exec -T pwiki sh -lc 'python -m cli users list'`. From a source
-> checkout, run it through uv: `uv run python -m pwiki.cli users list`.
+> Run these inside the container, e.g.
+> `docker compose exec -T pwiki sh -lc 'python -m cli users list'`.
 
 Admin users can perform the same kind of management from the web admin UI.
 
@@ -300,25 +300,10 @@ A few things to keep in mind:
 - Use a private Git repository or a self-hosted Git server for sensitive notes.
 - Before turning on pwiki's web-save auto commit/push, double-check your Git remote permissions and conflict-handling workflow.
 
-## Local Run
+## Deployment
 
-To try pwiki locally without Docker, use [uv](https://docs.astral.sh/uv/) from
-the repository root (Python is pinned by `.python-version`):
-
-```bash
-uv sync
-PWIKI_MARKDOWN_DIR=./your-vault PWIKI_ALLOW_ANONYMOUS=1 uv run python pwiki/app.py
-```
-
-Dependency files in the repo, each for a different job:
-
-| File | What it's for |
-|---|---|
-| `pyproject.toml` | Source of truth for dependencies; uv resolves it into `uv.lock` and the `.venv`. |
-| `pwiki/requirements.lock.txt` | The reproducible runtime install the Docker image uses (plain `pip`). Regenerated from `pyproject.toml` with `uv export`. |
-| `pwiki/requirements.txt` | Loose-pin app deps kept for plain `pip install -r` users who aren't on uv. |
-
-For the full deployment procedure see [`deploy.md`](deploy.md).
+For the full deployment and operations procedure — Docker Compose, reverse proxy,
+OAuth setup, and Obsidian/Git vault sync — see [`deploy.md`](deploy.md).
 
 ## License
 

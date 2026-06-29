@@ -193,6 +193,11 @@ def vault_commit(
         help="Use this email as the Git commit author",
     ),
     push: bool = typer.Option(False, "--push", help="Push after a successful commit"),
+    rebase: bool = typer.Option(
+        False,
+        "--rebase",
+        help="Rebase onto the upstream tip before pushing (aborts on conflict)",
+    ),
 ) -> None:
     """Commit vault-scoped changes and optionally push."""
     try:
@@ -201,6 +206,7 @@ def vault_commit(
             message=message or default_commit_message(page_path),
             author_email=author_email,
             push=push,
+            rebase_before_push=rebase,
         )
     except (FileNotFoundError, NotADirectoryError, GitOperationError) as exc:
         logger.error(str(exc))

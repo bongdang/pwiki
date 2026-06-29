@@ -1,18 +1,19 @@
 [Unit]
-Description=pwiki vault Git sync (user, host-side git pull)
+Description=pwiki vault Git sync (user, host-side)
 After=default.target
 
 [Service]
 Type=oneshot
 # install.py rewrites the /srv/newwiki placeholders below to this repository's
 # absolute path, so the unit reads the real deployment .env (which holds
-# PWIKI_GIT_HOST_DIR) regardless of where the repo is checked out.
+# PWIKI_GIT_HOST_DIR) and finds the sync script regardless of where the repo is
+# checked out.
 WorkingDirectory=/srv/newwiki
 EnvironmentFile=/srv/newwiki/.env
-# Fast-forward pull on the host (NOT inside the container): the container image
-# ships without an SSH client or keys, while your login user already has the
-# ~/.ssh credentials needed for an SSH Git remote. PWIKI_GIT_HOST_DIR must be an
-# absolute path to the vault Git working tree. --ff-only refuses to run on a
-# diverged/dirty tree, so an unexpected local commit surfaces as a failure
-# instead of an automatic merge.
-ExecStart=/bin/sh -lc 'git -C "$PWIKI_GIT_HOST_DIR" pull --ff-only'
+# Host-side vault sync (NOT inside the container): the container image ships
+# without an SSH client or keys, while your login user already has the ~/.ssh
+# credentials needed for an SSH Git remote. The script is pull-only by default
+# and switches to bidirectional (commit local web writes, rebase, push) when
+# PWIKI_GIT_HOST_PUSH=1 is set in .env. PWIKI_GIT_HOST_DIR must be an absolute
+# path to the vault Git working tree.
+ExecStart=/bin/sh -lc '/srv/newwiki/deploy/pwiki-vault-sync.sh'

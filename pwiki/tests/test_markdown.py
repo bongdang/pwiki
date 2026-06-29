@@ -7,6 +7,7 @@ if PWIKI_DIR not in sys.path:
 
 import app as pwiki_app
 import config
+import rendering
 
 
 def test_heading_and_paragraph():
@@ -106,6 +107,46 @@ def test_obsidian_embed_renders_attachment_image(monkeypatch, tmp_path):
     html = pwiki_app.markdown_to_html('![[assets/pic.png]]')
 
     assert '<img src="/attach/assets/pic.png" alt="pic.png" />' in html
+
+
+def test_obsidian_embed_image_width(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'STORAGE_BACKEND', 'markdown')
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(tmp_path))
+
+    html = pwiki_app.markdown_to_html('![[assets/pic.png|640]]')
+
+    assert '<img src="/attach/assets/pic.png" alt="pic.png" width="640">' in html
+    assert 'height=' not in html
+
+
+def test_obsidian_embed_image_width_and_height(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'STORAGE_BACKEND', 'markdown')
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(tmp_path))
+
+    html = pwiki_app.markdown_to_html('![[assets/pic.png|640x480]]')
+
+    assert '<img src="/attach/assets/pic.png" alt="pic.png" width="640" height="480">' in html
+
+
+def test_obsidian_embed_non_numeric_pipe_stays_caption(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'STORAGE_BACKEND', 'markdown')
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(tmp_path))
+
+    html = pwiki_app.markdown_to_html('![[assets/pic.png|My caption]]')
+
+    # A non-dimension pipe value remains the alt text (no width injected).
+    assert 'alt="My caption"' in html
+    assert 'width=' not in html
+
+
+def test_obsidian_embed_sized_image_percent_encodes_src(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'STORAGE_BACKEND', 'markdown')
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(tmp_path))
+
+    html = pwiki_app.markdown_to_html('![[첨부 파일.png|320]]')
+
+    assert 'src="/attach/%EC%B2%A8%EB%B6%80%20%ED%8C%8C%EC%9D%BC.png"' in html
+    assert 'width="320"' in html
 
 
 def test_obsidian_links_percent_encode_href(monkeypatch, tmp_path):
@@ -228,19 +269,19 @@ def test_normalize_obsidian_lookup_key_handles_nfd():
 def test_resolve_obsidian_page_caches_normalized_keys_per_request(monkeypatch):
     pages = ['Notes/Alpha_Page', 'Notes/Beta_Page']
     calls = 0
-    original = pwiki_app._normalize_obsidian_lookup_key
+    original = rendering._normalize_obsidian_lookup_key
 
     def counted(value):
         nonlocal calls
         calls += 1
         return original(value)
 
-    monkeypatch.setattr(pwiki_app, 'get_all_pages', lambda: pages)
-    monkeypatch.setattr(pwiki_app, '_normalize_obsidian_lookup_key', counted)
+    monkeypatch.setattr(rendering, 'get_all_pages', lambda: pages)
+    monkeypatch.setattr(rendering, '_normalize_obsidian_lookup_key', counted)
 
     with pwiki_app.app.test_request_context('/'):
-        assert pwiki_app._resolve_obsidian_page('Alpha Page') == 'Notes/Alpha_Page'
-        assert pwiki_app._resolve_obsidian_page('Beta Page') == 'Notes/Beta_Page'
+        assert rendering._resolve_obsidian_page('Alpha Page') == 'Notes/Alpha_Page'
+        assert rendering._resolve_obsidian_page('Beta Page') == 'Notes/Beta_Page'
 
     # First lookup normalizes the query plus both full paths and basenames.
     # Second lookup should only normalize the new query and reuse g._normalized_keys.

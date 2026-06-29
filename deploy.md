@@ -227,10 +227,15 @@ When `PWIKI_URL_PREFIX=/newwiki`, test through the reverse proxy path
 | `PWIKI_ADMIN_GOOGLE_EMAIL` | First admin email seeded at startup. |
 | `PWIKI_PUBLIC_BASE_URL` | External scheme and host for OAuth redirect URI generation. |
 | `PWIKI_URL_PREFIX` | Sub-path prefix such as `/newwiki`. |
-| `PWIKI_GIT_AUTO_COMMIT` | `1` commits and pushes after successful web saves. |
+| `PWIKI_GIT_AUTO_COMMIT` | `1` makes the **container** commit and push after web saves/deletes/uploads. Only works when the container can reach the remote (token remote or mounted SSH key); on the standard host-owns-Git deployment leave this `0` and use `PWIKI_GIT_HOST_PUSH`. |
+| `PWIKI_GIT_AUTO_REBASE` | `1` rebases onto the upstream tip before a container auto-commit push so a stale-base web edit fast-forwards instead of diverging; a real conflict aborts the rebase and keeps the commit unpushed. (Only with `PWIKI_GIT_AUTO_COMMIT=1`.) |
+| `PWIKI_GIT_HOST_PUSH` | Read by the host sync script (`deploy/pwiki-vault-sync.sh`). `1` = bidirectional (commit local web writes on the host, rebase onto remote, push). Unset/`0` = pull-only (read-only server). |
+| `PWIKI_GIT_AUTHOR_NAME` / `PWIKI_GIT_AUTHOR_EMAIL` | Optional commit identity for host-side bidirectional commits. Default `pwiki` / `pwiki@localhost`. |
+| `PWIKI_ATTACHMENT_SUBDIR` | Vault-relative folder web uploads land in (embedded as `![[<subdir>/<file>]]`); kept inside the vault so uploads sync via Git. Defaults to `attachments`. |
 | `PWIKI_VAULT_MOUNT_MODE` | Compose volume mode for the vault, usually `rw` or `ro`. |
+| `PWIKI_UID` / `PWIKI_GID` | UID/GID the container runs as (compose `user:`). Set to the host login user's `id -u` / `id -g` so container-written vault files are host-owned. Required for bidirectional sync; defaults to `1000`. |
 | `PWIKI_LOG_FILE` | Optional rotating log file path, for example `/data/pwiki/pwiki.log`. |
-| `PWIKI_MAX_CONTENT_LENGTH` | Flask request body limit in bytes. Default is 5 MiB. |
+| `PWIKI_MAX_CONTENT_LENGTH` | Flask request body limit in bytes (also the per-upload size cap). Default is 5 MiB. |
 | `PWIKI_INTERNAL_API_TOKEN` | Bearer token for `/api/internal/*`. Empty disables the internal API entirely. |
 | `PWIKI_INTERNAL_API_ALLOWED_CIDRS` | CIDR allowlist for the internal API. Defaults to loopback + RFC1918. |
 | `PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS` | CIDRs whose `X-Forwarded-For` may be honored when computing the client IP. Empty = always use `remote_addr`. |
@@ -358,15 +363,70 @@ docker compose exec -T pwiki sh -lc 'python -m cli vault git-status "$PWIKI_MARK
 
 Operational policy:
 
-- Automatic pull is handled outside the Flask app, on the host.
-- Use a systemd timer (see below), cron, or another scheduler to run the pull.
-- `git pull --ff-only` refuses to run on a diverged/dirty tree, so an unexpected
-  local commit on the server surfaces as a failure instead of an automatic merge.
-- Keep the server vault pull-only: set `PWIKI_READ_ONLY=1` and leave
-  `PWIKI_GIT_AUTO_COMMIT` unset so the server never creates commits that would
-  diverge from the remote.
-- Pushing from the server (e.g. `PWIKI_GIT_AUTO_COMMIT=1`) needs SSH inside the
-  container and is intentionally not part of this pull-only flow.
+- All Git network operations happen **on the host**, not in the Flask app or the
+  container — `deploy/pwiki-vault-sync.sh` (invoked by the systemd timer) owns
+  them, because only the host has the SSH keys.
+- The script has **two modes**, chosen by `PWIKI_GIT_HOST_PUSH` in `.env`:
+  - **Pull-only (default, `unset`/`0`)** — for a read-only server. Runs
+    `git pull --ff-only`, which refuses to run on a diverged/dirty tree, so an
+    unexpected local change surfaces as a failure instead of an automatic merge.
+    Keep the server pull-only with `PWIKI_READ_ONLY=1` and
+    `PWIKI_GIT_AUTO_COMMIT=0`.
+  - **Bidirectional (`PWIKI_GIT_HOST_PUSH=1`)** — for a server where web
+    edits/uploads are allowed (`PWIKI_READ_ONLY=0`). The container writes files
+    only (keep `PWIKI_GIT_AUTO_COMMIT=0`), and the host script commits those
+    writes, `rebase`s onto the remote to absorb Obsidian-side pushes, then
+    pushes. A true content conflict aborts the rebase, keeps the commit
+    unpushed, and logs a message for manual resolution. This is the recommended
+    way to publish web writes.
+- **Why not `PWIKI_GIT_AUTO_COMMIT=1`?** That makes the *container* commit and
+  push, but the default image has no SSH client/keys, so the push fails and the
+  commits/dirty tree pile up — which then also blocks the host pull. Only use
+  `PWIKI_GIT_AUTO_COMMIT=1` if you have deliberately given the container push
+  access (HTTPS-token remote or a mounted SSH key); otherwise leave it `0` and
+  use `PWIKI_GIT_HOST_PUSH=1`.
+- The most common breakage: `PWIKI_READ_ONLY=0` with **both**
+  `PWIKI_GIT_AUTO_COMMIT=0` and `PWIKI_GIT_HOST_PUSH` unset. Uploads then land on
+  disk (and display) but are never committed, leaving a dirty tree that stops the
+  host pull entirely. Fix by setting `PWIKI_GIT_HOST_PUSH=1`.
+
+#### Container UID must match the host user (every deployment)
+
+`docker-compose.yml` runs the container as a non-root user
+(`user: "${PWIKI_UID:-1000}:${PWIKI_GID:-1000}"`). That UID has to own two things
+the container writes:
+
+1. **`volumes/pwiki-data/`** — `pwiki.db` (users, ACL, sessions) and logs. The app
+   writes this on **every** deployment, including read-only ones. A previous
+   **root** container left these files `root:root`; after the switch the non-root
+   process can no longer write them and the app fails to start.
+2. **The vault bind-mount** — only when bidirectional sync is on. The container
+   writes web edits/uploads, and the host `systemctl --user` timer later
+   `git add`s them. If they are `root:root`, the timer (your login user) cannot
+   stage them:
+
+   ```text
+   error: open("…/index.md"): Permission denied
+   fatal: adding files failed
+   pwiki-vault-sync.service: Main process exited, code=exited, status=128
+   ```
+
+Fix: set the container UID to your host login user, then reclaim any files an
+earlier root container already wrote.
+
+```bash
+echo "PWIKI_UID=$(id -u)" >> .env
+echo "PWIKI_GID=$(id -g)" >> .env
+# One-time ownership reclaim — BOTH the vault and the data volume:
+sudo chown -R "$(id -u):$(id -g)" "$PWIKI_GIT_HOST_DIR" ./volumes/pwiki-data
+```
+
+> Run `install.py` **as your login user, not under `sudo`** — it reads the
+> effective UID to verify the match, and `sudo` (euid 0) would mis-detect it as
+> root. It warns when the container UID will not be able to write
+> `volumes/pwiki-data`, and hard-fails when `PWIKI_GIT_HOST_PUSH=1` and the UID
+> does not match the host user. `PWIKI_UID` must be **numeric** — compose
+> substitutes it verbatim into `user:`, so a name fails at container start.
 
 ### systemd Timer
 
@@ -376,12 +436,14 @@ Example units live in:
 deploy/systemd/
 ```
 
-The service unit reads `PWIKI_GIT_HOST_DIR` from the deployment `.env` via
-`EnvironmentFile=` and runs `git -C "$PWIKI_GIT_HOST_DIR" pull --ff-only` on the
-host. The example files use a `/srv/newwiki` placeholder for both
-`WorkingDirectory` and `EnvironmentFile`; adjust them if the repository lives
+The service unit reads `PWIKI_GIT_HOST_DIR` (and `PWIKI_GIT_HOST_PUSH`) from the
+deployment `.env` via `EnvironmentFile=` and runs `deploy/pwiki-vault-sync.sh` on
+the host — pull-only by default, bidirectional when `PWIKI_GIT_HOST_PUSH=1`. The
+example files use a `/srv/newwiki` placeholder for `WorkingDirectory`,
+`EnvironmentFile`, and the script path; adjust them if the repository lives
 elsewhere. (`./install.py` rewrites these to the actual repo path automatically
-when it installs the **user** units.)
+when it installs the **user** units, and validates that the script is present and
+executable.)
 
 **Prefer the user units.** They run as your login user, so the host `~/.ssh`
 keys reach an SSH Git remote without extra configuration. A **system** unit runs
@@ -420,6 +482,68 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now pwiki-vault-sync.timer
 systemctl list-timers pwiki-vault-sync.timer
 ```
+
+### Checking sync health
+
+Verify sync in three layers — **is the timer scheduled → did the last run
+succeed → does the content actually match the remote**. Commands below assume the
+**user** units; for system units drop `--user` and prefix `journalctl` with
+`sudo`. Run as your login user, not `sudo`.
+
+**1. Timer is alive and scheduled**
+
+```bash
+systemctl --user list-timers pwiki-vault-sync.timer   # NEXT / LAST fire time
+systemctl --user is-enabled pwiki-vault-sync.timer    # -> enabled
+systemctl --user is-active  pwiki-vault-sync.timer    # -> active (waiting)
+loginctl show-user "$USER" -p Linger                  # -> Linger=yes
+```
+
+`Linger=no` means the timer stops when you log out — fix with
+`loginctl enable-linger "$USER"`.
+
+**2. The last run succeeded** (the most useful check)
+
+```bash
+systemctl --user status pwiki-vault-sync.service              # last result / exit code
+journalctl --user -u pwiki-vault-sync.service -n 40 --no-pager
+journalctl --user -u pwiki-vault-sync.service -f             # follow live
+```
+
+Reading the log:
+
+- **OK** — quiet exit, a pull summary, or `Everything up-to-date`; `status=0/SUCCESS`.
+- **Conflict (bidirectional)** — `rebase conflict on '<branch>'; resolve manually
+  in the vault.` then exit 1. The local commit is preserved and unpushed; resolve
+  in Obsidian.
+- **Permission denied** — `error: open(...): Permission denied` /
+  `fatal: adding files failed`. The container UID still does not match the host
+  user — see *Container UID must match the host user* above (set `PWIKI_UID` and
+  run the one-time `chown`).
+
+**3. Run it once now**
+
+```bash
+systemctl --user start pwiki-vault-sync.service
+journalctl --user -u pwiki-vault-sync.service -n 20 --no-pager
+```
+
+**4. Content actually matches the remote** (inspect the vault repo directly)
+
+```bash
+cd "$PWIKI_GIT_HOST_DIR"        # set -a; source /srv/newwiki/.env; set +a to get it
+git status                      # clean = good; dirty = uncommitted web writes
+git fetch --quiet
+git log --oneline @{u}..        # local-only commits not yet pushed (ahead)
+git log --oneline ..@{u}        # remote-only commits not yet pulled (behind)
+```
+
+Both `git log` ranges empty = fully in sync. On a pull-only server, a dirty tree
+or any ahead commits mean `git pull --ff-only` is refusing to advance (typically a
+root container committing web writes) and sync is stuck until that is cleared.
+
+Day-to-day, layers 1–2 (`list-timers` + `journalctl … -n 20`) are enough; use
+layer 4 when you need to confirm the trees are identical.
 
 ## 10. nginx Reverse Proxy
 

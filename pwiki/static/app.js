@@ -294,6 +294,97 @@
       });
     });
 
+    // ---- File / image upload (button + paste + drag-and-drop) ----
+    var statusEl = document.getElementById('upload-status');
+    var attachBtn = document.getElementById('attach-btn');
+    var fileInput = document.getElementById('attach-input');
+
+    function setUploadStatus(text, isError, autohide) {
+      if (!statusEl) return;
+      statusEl.textContent = text;
+      statusEl.hidden = false;
+      statusEl.classList.toggle('is-error', !!isError);
+      if (autohide) {
+        setTimeout(function () {
+          if (statusEl.textContent === text) statusEl.hidden = true;
+        }, 2500);
+      }
+    }
+
+    function uploadFiles(files) {
+      var list = Array.prototype.slice.call(files || []);
+      if (!list.length) return;
+      var csrf = (form.querySelector('input[name=csrf_token]') || {}).value || '';
+      setUploadStatus('Uploading…');
+      var failures = 0;
+      var chain = Promise.resolve();
+      list.forEach(function (file) {
+        chain = chain.then(function () {
+          var fd = new FormData();
+          fd.append('action', 'upload');
+          fd.append('csrf_token', csrf);
+          fd.append('file', file, file.name || 'pasted');
+          return fetch(form.action, {
+            method: 'POST',
+            body: fd,
+            headers: { 'Accept': 'application/json' }
+          }).then(function (r) {
+            return r.json().catch(function () {
+              return { ok: false, error: 'Upload failed (' + r.status + ').' };
+            });
+          }).then(function (data) {
+            if (!data.ok) {
+              failures++;
+              setUploadStatus(data.error || 'Upload failed.', true);
+              return;
+            }
+            insertAtCursor(textarea, data.embed + '\n');
+            textarea.dispatchEvent(new Event('input'));
+            textarea.focus();
+            if (data.notice && data.notice.level === 'error') {
+              setUploadStatus(data.notice.message, true);
+            }
+          });
+        });
+      });
+      chain.then(function () {
+        if (!failures) setUploadStatus('Uploaded ✓', false, true);
+      });
+    }
+
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', function () { fileInput.click(); });
+      fileInput.addEventListener('change', function () {
+        uploadFiles(fileInput.files);
+        fileInput.value = '';
+      });
+    }
+
+    textarea.addEventListener('paste', function (e) {
+      var files = e.clipboardData && e.clipboardData.files;
+      if (files && files.length) {
+        e.preventDefault();
+        uploadFiles(files);
+      }
+    });
+
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      textarea.addEventListener(ev, function (e) {
+        if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') === -1) return;
+        e.preventDefault();
+        textarea.classList.add('drag-over');
+      });
+    });
+    ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+      textarea.addEventListener(ev, function () { textarea.classList.remove('drag-over'); });
+    });
+    textarea.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        e.preventDefault();
+        uploadFiles(e.dataTransfer.files);
+      }
+    });
+
     textarea.addEventListener('keydown', function (e) {
       if (!(e.metaKey || e.ctrlKey)) return;
       var k = e.key.toLowerCase();

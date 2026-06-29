@@ -4,9 +4,23 @@ services:
       context: ./pwiki
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Run as the HOST login user so files the container writes into the vault
+    # bind-mount (web edits/uploads) are owned by that user — otherwise they land
+    # as root:root and the host-side `systemctl --user` sync timer cannot `git add`
+    # them (EACCES → sync fails). Set PWIKI_UID/PWIKI_GID in .env to `id -u`/`id -g`
+    # of the host user. Defaults to 1000:1000 (the typical first Linux user).
+    user: "${PWIKI_UID:-1000}:${PWIKI_GID:-1000}"
     ports:
       - "5000:5000"
     environment:
+      # ── Non-root runtime hardening (see `user:` above) ──────────────────────
+      # The custom UID has no /etc/passwd entry, so HOME would default to "/"
+      # (root-owned, unwritable). Point it at the writable data volume so git and
+      # any tool that touches $HOME works. Skip writing .pyc into the root-owned
+      # /app so the non-root process does not log cache-write failures each boot.
+      HOME:                 "/data/pwiki"
+      PYTHONDONTWRITEBYTECODE: "1"
+
       # ── Site settings ───────────────────────────────────────────────────────
       PWIKI_SITE_NAME:   "MyWiki"
       PWIKI_HOME_PAGE:   "index"

@@ -20,6 +20,10 @@ USER_SERVICE_TEMPLATE = TEMPLATE_DIR / "user-pwiki-vault-sync.service.example"
 USER_TIMER_TEMPLATE = TEMPLATE_DIR / "user-pwiki-vault-sync.timer.example"
 USER_SERVICE_TARGET = USER_SYSTEMD_DIR / "pwiki-vault-sync.service"
 USER_TIMER_TARGET = USER_SYSTEMD_DIR / "pwiki-vault-sync.timer"
+# Host-side sync script the systemd units exec (pull-only, or bidirectional when
+# PWIKI_GIT_HOST_PUSH=1). Runs in-place from the repo, so it only needs to exist
+# and be executable here — the units reference it by absolute path.
+SYNC_SCRIPT = REPO_ROOT / "deploy" / "pwiki-vault-sync.sh"
 
 SECRET_KEYS = {
     "PWIKI_SECRET_KEY",
@@ -68,6 +72,11 @@ def main() -> int:
         print("\nSkipping user systemd timer because PWIKI_USE_GIT=0.")
 
     if not args.skip_docker:
+        # Pre-create the SQLite/data bind-mount source so it is owned by the
+        # installing (host login) user. If left to the Docker daemon, a missing
+        # bind-mount source is created as root, which the non-root container
+        # (compose `user:`) then cannot write.
+        (REPO_ROOT / "volumes" / "pwiki-data").mkdir(parents=True, exist_ok=True)
         run(["docker", "compose", "up", "-d", "--build"], cwd=REPO_ROOT, env=merged_env)
         run(["docker", "compose", "ps"], cwd=REPO_ROOT, env=merged_env, check=False)
         run(
@@ -79,7 +88,10 @@ def main() -> int:
                 "pwiki",
                 "sh",
                 "-lc",
-                'python -m pwiki.cli config show && python -m pwiki.cli vault git-status "$PWIKI_MARKDOWN_DIR"',
+                # Inside the container the modules are flattened to /app, so the
+                # `pwiki` package does not exist — the path is `cli`, not
+                # `pwiki.cli` (the latter only works in a source checkout).
+                'python -m cli config show && python -m cli vault git-status "$PWIKI_MARKDOWN_DIR"',
             ],
             cwd=REPO_ROOT,
             env=merged_env,
@@ -483,6 +495,61 @@ def validate_env(
         problems.append("PWIKI_GIT_AUTO_COMMIT=1 requires PWIKI_READ_ONLY=0")
     if auto_commit and mount_mode == "ro":
         problems.append("PWIKI_GIT_AUTO_COMMIT=1 requires a writable vault mount")
+
+    host_push = truthy(env.get("PWIKI_GIT_HOST_PUSH", "0"))
+    if host_push:
+        if read_only:
+            warnings.append(
+                "PWIKI_GIT_HOST_PUSH=1 (host bidirectional sync) usually needs "
+                "PWIKI_READ_ONLY=0 so web edits exist to publish"
+            )
+        if auto_commit:
+            warnings.append(
+                "PWIKI_GIT_HOST_PUSH=1 with PWIKI_GIT_AUTO_COMMIT=1: prefer "
+                "container file-only writes (PWIKI_GIT_AUTO_COMMIT=0) so the host "
+                "owns every Git network op"
+            )
+        if mount_mode == "ro":
+            problems.append("PWIKI_GIT_HOST_PUSH=1 requires a writable vault mount")
+
+    # Container UID (compose `user:`) must equal the login user that runs this
+    # installer, for two reasons that apply to EVERY deployment, not just host
+    # sync: (1) the non-root container must write pwiki.db / logs under the
+    # installer-created volumes/pwiki-data; (2) with host bidirectional sync the
+    # host timer must `git add` files the container wrote into the vault. NOTE:
+    # this reads the effective uid, so run install.py as the login user, not
+    # under sudo (sudo's euid=0 would suggest PWIKI_UID=0).
+    if hasattr(os, "geteuid"):
+        host_uid = os.geteuid()
+        host_gid = os.getegid() if hasattr(os, "getegid") else None
+        cfg_uid = env.get("PWIKI_UID", "").strip()
+        if cfg_uid and not cfg_uid.isdigit():
+            problems.append(
+                f"PWIKI_UID must be numeric (got {cfg_uid!r}); docker-compose "
+                "substitutes it literally into `user:`, so a non-numeric value "
+                "fails at container start with 'invalid user'"
+            )
+        eff_uid = int(cfg_uid) if cfg_uid.isdigit() else 1000
+        if eff_uid != host_uid:
+            gid_hint = f" PWIKI_GID={host_gid}" if host_gid is not None else ""
+            fix = (
+                f"Set PWIKI_UID={host_uid}{gid_hint} in .env (effective container "
+                f"UID is {eff_uid}). Reclaim any existing root-owned files once: "
+                'sudo chown -R "$(id -u):$(id -g)" "$PWIKI_GIT_HOST_DIR" '
+                f"{REPO_ROOT}/volumes/pwiki-data"
+            )
+            if host_push:
+                problems.append(
+                    "PWIKI_GIT_HOST_PUSH=1 needs the container UID to match the host "
+                    "user that runs the sync timer, or the host cannot `git add` web "
+                    "writes. " + fix
+                )
+            else:
+                warnings.append(
+                    "Container UID does not match the host user; the non-root "
+                    "container may be unable to write pwiki.db / logs under "
+                    "volumes/pwiki-data. " + fix
+                )
     if not args.skip_docker and not shutil.which("docker"):
         problems.append("docker command was not found")
     if not args.skip_systemd and not shutil.which("systemctl"):
@@ -492,6 +559,10 @@ def validate_env(
         problems.append("docker-compose.yml was not found in repo root")
     if not USER_SERVICE_TEMPLATE.is_file() or not USER_TIMER_TEMPLATE.is_file():
         problems.append("user systemd template files are missing under deploy/systemd")
+    if not SYNC_SCRIPT.is_file():
+        problems.append("host sync script is missing: deploy/pwiki-vault-sync.sh")
+    elif not os.access(SYNC_SCRIPT, os.X_OK):
+        warnings.append("deploy/pwiki-vault-sync.sh is not executable; run: chmod +x deploy/pwiki-vault-sync.sh")
 
     base_url = env.get("PWIKI_PUBLIC_BASE_URL", "")
     url_prefix = env.get("PWIKI_URL_PREFIX", "")
@@ -528,7 +599,10 @@ def print_summary(env_path: Path, env: dict[str, str], problems: list[str], warn
         "PWIKI_USE_GIT",
         "PWIKI_READ_ONLY",
         "PWIKI_GIT_AUTO_COMMIT",
+        "PWIKI_GIT_HOST_PUSH",
         "PWIKI_VAULT_MOUNT_MODE",
+        "PWIKI_UID",
+        "PWIKI_GID",
         "PWIKI_URL_PREFIX",
         "PWIKI_PUBLIC_BASE_URL",
         "GOOGLE_OAUTH_CLIENT_ID",

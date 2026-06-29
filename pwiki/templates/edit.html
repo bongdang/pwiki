@@ -29,11 +29,16 @@
         <button type="button" class="ed-btn" data-fmt="codeblock" title="Code block">```</button>
         <button type="button" class="ed-btn" data-fmt="link" title="Link (⌘K)">🔗</button>
         <button type="button" class="ed-btn" data-fmt="image" title="Image">🖼</button>
+        <button type="button" class="ed-btn" id="attach-btn" title="Attach file / image">📎</button>
         <button type="button" class="ed-btn" data-fmt="hr" title="Divider">—</button>
+        <span id="upload-status" class="upload-status" hidden></span>
         <span class="ed-spacer"></span>
         <button type="button" class="ed-btn" id="preview-toggle" title="Preview (⌘P)">👁 Preview</button>
         <button type="submit" class="ed-btn ed-primary" id="save-btn" title="Save (⌘S)">Save</button>
     </div>
+    <input type="file" id="attach-input" class="attach-input" multiple hidden
+           accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.md,.zip">
+    {# No `name` attribute: this input is uploaded via AJAX and must not be part of the Save POST. #}
 
     <div class="edit-pane">
         <textarea id="edit-text" name="text" class="edit-textarea" spellcheck="false">{{ old_text }}</textarea>
@@ -80,6 +85,7 @@
 <tr><td><code>[[Page#Section]]</code></td><td>Section anchor</td></tr>
 <tr><td><code>[Name](http://url)</code></td><td>External link</td></tr>
 <tr><td><code>![[image.png]]</code></td><td>Attached image/file</td></tr>
+<tr><td>📎 button / paste / drag-drop</td><td>Upload a file or image (inserts <code>![[attachments/…]]</code>)</td></tr>
 <tr><td><code>#tag</code></td><td>Inline tag (search link)</td></tr>
 </table>
 

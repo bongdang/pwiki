@@ -695,6 +695,21 @@ html[data-mobile-menu="open"] body {
     outline-offset: -1px;
     border-color: transparent;
 }
+.edit-textarea.drag-over {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+.upload-status {
+    align-self: center;
+    font-size: 12px;
+    color: var(--muted, #888);
+    padding: 0 8px;
+    white-space: nowrap;
+}
+.upload-status.is-error {
+    color: var(--danger, #c0392b);
+}
 .edit-preview {
     flex: 1;
     min-height: 60vh;

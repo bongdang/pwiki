@@ -10,6 +10,7 @@ if PWIKI_DIR not in sys.path:
 
 import app as pwiki_app
 import config
+import storage
 
 
 @pytest.fixture(autouse=True)
@@ -321,7 +322,7 @@ def test_save_handles_filesystem_write_error(monkeypatch, tmp_path):
     def fail_write(*args, **kwargs):
         raise OSError('disk full')
 
-    monkeypatch.setattr(pwiki_app, 'write_string_to_file', fail_write)
+    monkeypatch.setattr(storage, 'write_string_to_file', fail_write)
 
     client = pwiki_app.app.test_client()
     _, _, old_text = pwiki_app.read_page('Note')
@@ -375,6 +376,79 @@ def test_markdown_storage_search_and_delete(monkeypatch, tmp_path):
     )
     assert deleted.status_code == 302
     assert not (md_root / 'Notes' / 'Alpha.md').exists()
+
+
+def test_markdown_storage_auto_commit_after_delete(monkeypatch, tmp_path):
+    md_root = tmp_path / 'repo'
+    md_root.mkdir()
+    subprocess.run(['git', 'init'], cwd=md_root, check=True, capture_output=True)
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(md_root))
+    monkeypatch.setattr(config, 'GIT_ROOT', str(md_root))
+    monkeypatch.setattr(config, 'GIT_AUTO_COMMIT', True)
+    monkeypatch.setattr(config, 'READ_ONLY', False)
+    pwiki_app.write_page('Note', '# Title\n')
+    subprocess.run(['git', '-C', str(md_root), 'add', 'Note.md'], check=True, capture_output=True)
+    subprocess.run(
+        [
+            'git', '-C', str(md_root),
+            '-c', 'user.name=tester',
+            '-c', 'user.email=tester@example.com',
+            'commit', '-m', 'Initial',
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    client = pwiki_app.app.test_client()
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
+        sess['csrf_token'] = 'token'
+
+    deleted = client.post('/Note', data={'action': 'delete', 'csrf_token': 'token'})
+
+    assert deleted.status_code == 302
+    assert not (md_root / 'Note.md').exists()
+
+    # The removal must be committed so the deletion propagates and the working
+    # tree is left clean (a dirty tree would block the host's pull --ff-only).
+    status = subprocess.run(
+        ['git', '-C', str(md_root), 'status', '--porcelain'],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout.strip() == ''
+    log = subprocess.run(
+        ['git', '-C', str(md_root), 'log', '--oneline', '--', 'Note.md'],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert 'Update Note.md via pwiki' in log.stdout
+
+
+def test_markdown_storage_blocks_delete_during_merge(monkeypatch, tmp_path):
+    md_root = tmp_path / 'repo'
+    md_root.mkdir()
+    subprocess.run(['git', 'init'], cwd=md_root, check=True, capture_output=True)
+    monkeypatch.setattr(config, 'MARKDOWN_DIR', str(md_root))
+    monkeypatch.setattr(config, 'GIT_ROOT', str(md_root))
+    monkeypatch.setattr(config, 'GIT_AUTO_COMMIT', False)
+    monkeypatch.setattr(config, 'READ_ONLY', False)
+    pwiki_app.write_page('Note', '# Title\n')
+    (md_root / '.git' / 'MERGE_HEAD').write_text('0' * 40 + '\n', encoding='utf-8')
+
+    client = pwiki_app.app.test_client()
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
+        sess['csrf_token'] = 'token'
+
+    deleted = client.post('/Note', data={'action': 'delete', 'csrf_token': 'token'})
+
+    assert deleted.status_code == 409
+    assert (md_root / 'Note.md').exists()
 
 
 def test_delete_handles_filesystem_remove_error(monkeypatch, tmp_path):
@@ -531,7 +605,7 @@ def test_markdown_storage_rechecks_hash_immediately_before_write(monkeypatch, tm
         pwiki_app.write_page('Race', '# Title\n\nexternal edit')
         return None
 
-    monkeypatch.setattr(pwiki_app, '_blocking_git_write_state', external_edit_during_save)
+    monkeypatch.setattr('routes.pages._blocking_git_write_state', external_edit_during_save)
 
     client = pwiki_app.app.test_client()
     with client.session_transaction() as sess:

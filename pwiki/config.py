@@ -1,6 +1,15 @@
 # pwiki configuration file
 import os
 
+_TRUE_VALUES = {'1', 'true', 'yes', 'on'}
+
+
+def _env_bool(name: str, default: str = '0') -> bool:
+    """Parse a boolean environment variable using the shared truthy vocabulary
+    (`1/true/yes/on`, case-insensitive)."""
+    return os.environ.get(name, default).strip().lower() in _TRUE_VALUES
+
+
 # Basic settings, overridable via environment variables.
 SITE_NAME  = os.environ.get('PWIKI_SITE_NAME', 'MyWiki')
 HOME_PAGE  = os.environ.get('PWIKI_HOME_PAGE', 'index')
@@ -35,6 +44,16 @@ ATTACH_ALLOWED_EXTENSIONS = {
     '.pdf', '.txt', '.md', '.zip',
 }
 
+# Vault-relative folder that web uploads are written into (and embedded as
+# ![[<subdir>/<file>]]). Kept inside PWIKI_MARKDOWN_DIR so uploads are part of
+# the Git-synced vault. Leading/trailing slashes are stripped; '..' segments are
+# rejected so the target stays inside the vault.
+_attachment_subdir = os.environ.get('PWIKI_ATTACHMENT_SUBDIR', 'attachments').strip().strip('/')
+_attachment_parts = [part for part in _attachment_subdir.split('/') if part]
+if not _attachment_parts or any(part in {'.', '..'} for part in _attachment_parts):
+    _attachment_parts = ['attachments']
+ATTACHMENT_SUBDIR = '/'.join(_attachment_parts)
+
 # SQLite database for users/permissions (replaces users/<u>.json over C8).
 DB_PATH = os.environ.get('PWIKI_DB_PATH', os.path.join(_data, 'pwiki.db'))
 
@@ -66,15 +85,20 @@ STORAGE_BACKEND = 'markdown'
 MARKUP_MODE = 'markdown'
 
 # Markdown defaults to read-only until write-mode policy is finalized.
-READ_ONLY = os.environ.get('PWIKI_READ_ONLY', '1').lower() in {'1', 'true', 'yes', 'on'}
-FILE_IO_LOG = os.environ.get('PWIKI_FILE_IO_LOG', '0').lower() in {'1', 'true', 'yes', 'on'}
+READ_ONLY = _env_bool('PWIKI_READ_ONLY', '1')
+FILE_IO_LOG = _env_bool('PWIKI_FILE_IO_LOG')
 LOG_FILE = os.environ.get('PWIKI_LOG_FILE', '').strip()
 LOG_ROTATION = os.environ.get('PWIKI_LOG_ROTATION', '10 MB').strip() or '10 MB'
 LOG_RETENTION = os.environ.get('PWIKI_LOG_RETENTION', '14 days').strip() or '14 days'
-GIT_AUTO_COMMIT = os.environ.get('PWIKI_GIT_AUTO_COMMIT', '0').lower() in {'1', 'true', 'yes', 'on'}
+GIT_AUTO_COMMIT = _env_bool('PWIKI_GIT_AUTO_COMMIT')
+# When auto-commit pushes, rebase the local commit onto the upstream tip first so
+# a web edit that landed on a stale base (another editor / Obsidian pushed first)
+# still fast-forwards instead of diverging. Off by default; a real content
+# conflict aborts the rebase and keeps the local commit unpushed.
+GIT_AUTO_REBASE = _env_bool('PWIKI_GIT_AUTO_REBASE')
 # Anonymous read-only fallback is opt-in. Without this flag, startup refuses when
 # OAuth is not configured so that an empty .env never silently exposes the vault.
-ALLOW_ANONYMOUS = os.environ.get('PWIKI_ALLOW_ANONYMOUS', '0').lower() in {'1', 'true', 'yes', 'on'}
+ALLOW_ANONYMOUS = _env_bool('PWIKI_ALLOW_ANONYMOUS')
 
 # Max request body size in bytes. Default 5 MB — large enough for a single
 # Markdown page plus a few embedded images, small enough to fail loud on a
@@ -90,7 +114,7 @@ if MAX_CONTENT_LENGTH <= 0:
 # https://, so HTTPS deployments don't have to remember to flip an extra flag.
 # PWIKI_SESSION_COOKIE_SECURE=1|0 can override the auto-detection.
 _session_secure_env = os.environ.get('PWIKI_SESSION_COOKIE_SECURE', '').strip().lower()
-if _session_secure_env in {'1', 'true', 'yes', 'on'}:
+if _session_secure_env in _TRUE_VALUES:
     SESSION_COOKIE_SECURE = True
 elif _session_secure_env in {'0', 'false', 'no', 'off'}:
     SESSION_COOKIE_SECURE = False
@@ -110,3 +134,12 @@ URL_PROTOCOLS = 'http|https|ftp|mailto'
 INTERNAL_API_TOKEN = os.environ.get('PWIKI_INTERNAL_API_TOKEN', '').strip()
 INTERNAL_API_ALLOWED_CIDRS = os.environ.get('PWIKI_INTERNAL_API_ALLOWED_CIDRS', '').strip()
 INTERNAL_API_TRUSTED_PROXY_CIDRS = os.environ.get('PWIKI_INTERNAL_API_TRUSTED_PROXY_CIDRS', '').strip()
+
+# User-facing message text reused by the shared error-response helpers
+# (pwiki/webutil.py) so the same wording is not re-typed across the mutation
+# handlers. Verb-templated messages (Git-blocked / write-failed) are built from
+# f-strings in the helpers themselves since they vary by save/delete.
+MSG_CSRF_INVALID_TITLE = 'Invalid submission'
+MSG_CSRF_INVALID = 'The security token is expired or invalid. Refresh the page and try again.'
+MSG_INVALID_PAGE_TITLE = 'Invalid page name'
+MSG_INVALID_PAGE = 'Invalid page id.'
